@@ -82,6 +82,17 @@ if(WITH_CYCLES_STANDALONE)
     cycles_xml.h
     oiio_output_driver.cpp
     oiio_output_driver.h
+	cycles_engine.cpp
+	cycles_engine_scene.cpp
+	cycles_engine.h
+	offline_cycles.cpp
+	offline_cycles.h
+	interactive_cycles.cpp
+	interactive_cycles_opengl.cpp
+	interactive_cycles_scene.cpp
+	interactive_cycles.h
+	image_memory_oiio.cpp
+	image_memory_oiio.h
   )
 
   if(WITH_CYCLES_STANDALONE_GUI)
@@ -94,11 +105,21 @@ if(WITH_CYCLES_STANDALONE)
       opengl/window.h
     )
   endif()
-
-  add_executable(cycles ${SRC} ${INC} ${INC_SYS})
+  
+  # fix the output path
+  #set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/../x64")
+  #set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/../x64")
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/../x64")
+  
+  # Export as DLL
+  add_definitions(-DUNICODE -D_UNICODE)
+  add_definitions(-DCYCLES_LIB_EXPORTS)
+  #set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+	
+  add_library(cycles SHARED ${SRC} ${INC} ${INC_SYS})
   unset(SRC)
-
-  target_link_libraries(cycles PRIVATE ${LIB})
+  
+  target_link_libraries(cycles PUBLIC ${LIB})
 
   if(APPLE)
     if(WITH_CYCLES_STANDALONE_GUI)

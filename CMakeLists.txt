@@ -100,8 +100,8 @@ option(WITH_CYCLES_OPENIMAGEDENOISE "Build with OpenImageDenoise support" ON)
 option(WITH_CYCLES_OPENSUBDIV       "Build with OpenSubdiv support" ON)
 option(WITH_CYCLES_OPENVDB          "Build with OpenVDB support" ON)
 option(WITH_CYCLES_NANOVDB          "Build with NanoVDB support" ON)
-option(WITH_CYCLES_OSL              "Build with OSL support" ON)
-option(WITH_CYCLES_USD              "Build with USD support" ON)
+option(WITH_CYCLES_OSL              "Build with OSL support" OFF)
+option(WITH_CYCLES_USD              "Build with USD support" OFF)
 
 if(UNIX AND NOT APPLE)
   option(WITH_CXX11_ABI              "Build with glibc C++11 ABI. Turn off for compatibility with VFX platform 2022 and earlier." ON)
@@ -111,7 +111,7 @@ endif()
 option(WITH_CYCLES_DEBUG             "Build Cycles with options useful for debugging (e.g., MIS)" OFF)
 option(WITH_CYCLES_DEBUG_NAN         "Build Cycles with additional asserts for detecting NaNs and invalid values" OFF)
 option(WITH_CYCLES_NATIVE_ONLY       "Build Cycles with native kernel only (which fits current CPU, use for development only)" OFF)
-option(WITH_CYCLES_STANDALONE_GUI    "Build Cycles standalone with GUI" OFF)
+option(WITH_CYCLES_STANDALONE_GUI    "Build Cycles standalone with GUI" ON)
 
 # NVIDIA CUDA & OptiX
 if(NOT APPLE)
@@ -162,7 +162,7 @@ if(NOT APPLE)
 endif()
 
 # Hydra Render Delegate
-option(WITH_CYCLES_HYDRA_RENDER_DELEGATE "Build Cycles Hydra render delegate" ON)
+option(WITH_CYCLES_HYDRA_RENDER_DELEGATE "Build Cycles Hydra render delegate" OFF)
 
 # Error Checking
 option(WITH_STRICT_BUILD_OPTIONS "When requirements for a build option are not met, error instead of disabling the option" OFF)

@@ -4,7 +4,7 @@ REM Convenience wrapper for CMake commands
 
 setlocal enableextensions enabledelayedexpansion
 
-set BUILD_DIR=build
+set BUILD_DIR="../cycles_build"
 set PYTHON=python
 set COMMAND=%1
 
