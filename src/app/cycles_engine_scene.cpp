@@ -24,6 +24,7 @@
 
 using namespace cycles_wrapper;
 
+const std::string CyclesEngine::sDefaultSurfaceShaderName = "qi_shader_default_surface";
 const std::string CyclesEngine::sLightShaderName = "qi_shader_light";
 const std::string CyclesEngine::sBackgroundShaderName = "qi_shader_background";
 
@@ -32,6 +33,33 @@ void CyclesEngine::DefaultSceneInit()
   // Set up shaders
   ccl::Scene *scene = mOptions.session->scene;
   mNameToShader.clear();
+  // Surface
+  {
+    ccl::ShaderGraph *graph = new ccl::ShaderGraph();
+
+    // Ablbedo
+    ccl::float3 f3AlbedoColor = ccl::make_float3(1.0f, 1.0f, 1.0f);
+    ccl::ColorNode *albedoColorNode = graph->create_node<ccl::ColorNode>();
+    albedoColorNode->set_value(f3AlbedoColor);
+    graph->add(albedoColorNode);
+    ccl::ShaderOutput *albedoOutput = albedoColorNode->output("Color");
+
+    // BSDF
+    ccl::PrincipledBsdfNode *bsdfNode = graph->create_node<ccl::PrincipledBsdfNode>();
+    graph->add(bsdfNode);
+    ccl::ShaderOutput *bsdfOutput = bsdfNode->output("BSDF");
+
+    // Final connections
+    graph->connect(albedoOutput, bsdfNode->input("Base Color"));
+    graph->connect(bsdfOutput, graph->output()->input("Surface"));
+
+    ccl::Shader *shader = scene->create_node<ccl::Shader>();
+    shader->name = sDefaultSurfaceShaderName;
+    shader->set_graph(graph);
+    shader->reference();
+    shader->tag_update(scene);
+    mNameToShader[shader->name.c_str()] = shader;
+  }
   // Light
   {
     ccl::ShaderGraph *graph = new ccl::ShaderGraph();
@@ -775,7 +803,8 @@ Mesh *CyclesEngine::AddMesh(Scene *scene,
   // Set shaders
   ccl::array<ccl::Node *> used_shaders; // = mesh->get_used_shaders();
   for (size_t i = 0; i < submeshCount; i++) {
-    ccl::Shader *shader = (ccl::Shader *)materials[i]->colorShader;
+    ccl::Shader *shader = materials[i] ? (ccl::Shader *)materials[i]->colorShader :
+                                         mNameToShader[sDefaultSurfaceShaderName];
     used_shaders.push_back_slow(shader);
   }
   mesh->set_used_shaders(used_shaders);

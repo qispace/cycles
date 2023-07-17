@@ -178,6 +178,7 @@ class CyclesEngine {
   std::map<std::string, ccl::Shader *> mNameToShader;
 
   // Static const
+  static const std::string sDefaultSurfaceShaderName;
   static const std::string sLightShaderName;
   static const std::string sTexturedShaderName;
   static const std::string sBackgroundShaderName;
