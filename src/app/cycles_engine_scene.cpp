@@ -26,6 +26,7 @@ using namespace cycles_wrapper;
 
 const std::string CyclesEngine::sDefaultSurfaceShaderName = "qi_shader_default_surface";
 const std::string CyclesEngine::sLightShaderName = "qi_shader_light";
+const std::string CyclesEngine::sDisabledLightShaderName = "qi_shader_light_disabled";
 const std::string CyclesEngine::sBackgroundShaderName = "qi_shader_background";
 
 void CyclesEngine::DefaultSceneInit()
@@ -72,6 +73,23 @@ void CyclesEngine::DefaultSceneInit()
 
     ccl::Shader *shader = scene->create_node<ccl::Shader>();
     shader->name = sLightShaderName;
+    shader->set_graph(graph);
+    shader->reference();
+    shader->tag_update(scene);
+    mNameToShader[shader->name.c_str()] = shader;
+  }
+  // Light (disabled)
+  {
+    ccl::ShaderGraph *graph = new ccl::ShaderGraph();
+    ccl::EmissionNode *emission = graph->create_node<ccl::EmissionNode>();
+    emission->set_color(ccl::make_float3(1.0f, 1.0f, 1.0f));
+    emission->set_strength(0.0f); // this makes it disabled
+    graph->add(emission);
+
+    graph->connect(emission->output("Emission"), graph->output()->input("Surface"));
+
+    ccl::Shader *shader = scene->create_node<ccl::Shader>();
+    shader->name = sDisabledLightShaderName;
     shader->set_graph(graph);
     shader->reference();
     shader->tag_update(scene);
@@ -334,7 +352,7 @@ void CyclesEngine::RemoveNode(Node *node)
   }
 }
 
-void CyclesEngine::UpdateNode(Node *node, float t[3], float r[4], float s[3])
+void CyclesEngine::UpdateNodeTransform(Node *node, float t[3], float r[4], float s[3])
 {
   ccl::Scene *scene = (ccl::Scene *)node->scene;
   ccl::Transform *transform = node->transform.get();
@@ -382,7 +400,37 @@ void CyclesEngine::UpdateNode(Node *node, float t[3], float r[4], float s[3])
   // Update the children now as well
   for (size_t i = 0; i < node->children.size(); i++) {
     Node *childNode = node->children[i];
-    UpdateNode(childNode, childNode->t, childNode->r, childNode->s);
+    UpdateNodeTransform(childNode, childNode->t, childNode->r, childNode->s);
+  }
+}
+
+void CyclesEngine::UpdateNodeVisibility(Node *node, bool visible)
+{
+  ccl::Scene *scene = (ccl::Scene *)node->scene;
+
+  if (node->parent) {
+    // ccl::Transform *parentTransform = node->parent->transform.get();
+    //*transform = (*parentTransform) * (*transform);
+  }
+
+  if (node->assignedMeshObject) {
+    node->assignedMeshObject->set_visibility(visible);
+    node->assignedMeshObject->tag_update(scene);
+  }
+
+  if (node->assignedLightObject) {
+    ccl::Shader *shader = (visible) ? mNameToShader[sLightShaderName] :
+                                      mNameToShader[sDisabledLightShaderName];
+    node->assignedLightObject->set_shader(shader);
+    node->assignedLightObject->tag_update(scene);
+  }
+
+  node->visible = visible;
+
+  // Update the children now as well
+  for (size_t i = 0; i < node->children.size(); i++) {
+    Node *childNode = node->children[i];
+    UpdateNodeVisibility(childNode, visible);
   }
 }
 

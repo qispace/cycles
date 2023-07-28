@@ -53,6 +53,7 @@ struct Node {
   float t[3];
   float r[4];
   float s[3];
+  bool visible = true;
   ccl::Object *assignedMeshObject = nullptr;
   ccl::Light *assignedLightObject = nullptr;
 };
@@ -107,7 +108,8 @@ class CyclesEngine {
                         float s[3]);
   DLL_API Node *GetNode(QiObjectID qiId);
   DLL_API void RemoveNode(Node *node);
-  DLL_API void UpdateNode(Node *node, float t[3], float r[4], float s[3]);
+  DLL_API void UpdateNodeTransform(Node *node, float t[3], float r[4], float s[3]);
+  DLL_API void UpdateNodeVisibility(Node *node, bool visible);
   DLL_API Texture *AddTexture(Scene *scene,
                               const char *name,
                               const unsigned char *data,
@@ -180,6 +182,7 @@ class CyclesEngine {
   // Static const
   static const std::string sDefaultSurfaceShaderName;
   static const std::string sLightShaderName;
+  static const std::string sDisabledLightShaderName;
   static const std::string sTexturedShaderName;
   static const std::string sBackgroundShaderName;
 
