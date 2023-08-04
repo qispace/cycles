@@ -414,7 +414,7 @@ void CyclesEngine::UpdateNodeVisibility(Node *node, bool visible)
   }
 
   if (node->assignedMeshObject) {
-    node->assignedMeshObject->set_visibility(visible);
+    node->assignedMeshObject->set_visibility(visible ? ~0 : 0);
     node->assignedMeshObject->tag_update(scene);
   }
 
