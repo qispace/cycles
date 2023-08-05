@@ -99,13 +99,11 @@ void CyclesEngine::DefaultSceneInit()
   {
     ccl::ShaderGraph *graph = new ccl::ShaderGraph();
 
-    ccl::BackgroundNode *backgroundNode = graph->create_node<ccl::BackgroundNode>();
-    //backgroundNode->set_color(ccl::make_float3(FLT_MAX, FLT_MAX, FLT_MAX));
-    backgroundNode->set_color(ccl::make_float3(0.0f, 0.0f, 0.0f));
-    backgroundNode->set_strength(1.0f);
-    graph->add(backgroundNode);
+    ccl::ColorNode *colorNode = graph->create_node<ccl::ColorNode>();
+    colorNode->set_value(ccl::make_float3(0.0f));
+    graph->add(colorNode);
 
-    graph->connect(backgroundNode->output("Background"), graph->output()->input("Surface"));
+    graph->connect(colorNode->output("Color"), graph->output()->input("Surface"));
 
     ccl::Shader *shader = scene->create_node<ccl::Shader>();
     shader->name = sBackgroundShaderName;
