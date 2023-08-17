@@ -140,8 +140,8 @@ class CyclesEngine {
                         uint *indices,
                         uint *triangleCounts,
                         uint submeshCount);
-  DLL_API void SetMeshRenderMode(
-      Scene *scene, Mesh *mesh, Material **materials, uint submeshCount, RenderMode renderMode);
+  DLL_API void UpdateMeshMaterials(
+      Scene *scene, Mesh *mesh, Material **materials, uint submeshCount, RenderMode renderMode = RenderMode::Normal);
   DLL_API Light *AssignLightToNode(Scene *scene,
                                    Node *node,
                                    const char *name,

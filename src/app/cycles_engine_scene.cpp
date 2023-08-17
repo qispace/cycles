@@ -47,6 +47,8 @@ void CyclesEngine::DefaultSceneInit()
 
     // BSDF
     ccl::PrincipledBsdfNode *bsdfNode = graph->create_node<ccl::PrincipledBsdfNode>();
+    //bsdfNode->set_metallic(1.0f);
+    //bsdfNode->set_roughness(0.1f);
     graph->add(bsdfNode);
     ccl::ShaderOutput *bsdfOutput = bsdfNode->output("BSDF");
 
@@ -587,26 +589,6 @@ Material *CyclesEngine::AddMaterial(Scene *scene,
       roughnessOutput = roughnessValueNode->output("Value");
     }
 
-    // Depth
-    ccl::GeometryNode *geometryNode = graph->create_node<ccl::GeometryNode>();
-    graph->add(geometryNode);
-
-    ccl::VectorTransformNode *cameraTransformNode = graph->create_node<ccl::VectorTransformNode>();
-    cameraTransformNode->set_vector(ccl::make_float3(0.0f));
-    cameraTransformNode->set_transform_type(ccl::NODE_VECTOR_TRANSFORM_TYPE_POINT);
-    cameraTransformNode->set_convert_from(ccl::NODE_VECTOR_TRANSFORM_CONVERT_SPACE_CAMERA);
-    cameraTransformNode->set_convert_to(ccl::NODE_VECTOR_TRANSFORM_CONVERT_SPACE_WORLD);
-    graph->add(cameraTransformNode);
-
-    ccl::VectorMathNode *distanceFromCameraNode = graph->create_node<ccl::VectorMathNode>();
-    distanceFromCameraNode->set_math_type(ccl::NODE_VECTOR_MATH_DISTANCE);
-    graph->add(distanceFromCameraNode);
-
-    graph->connect(geometryNode->output("Position"), distanceFromCameraNode->input("Vector1"));
-    graph->connect(cameraTransformNode->output("Vector"),
-                   distanceFromCameraNode->input("Vector2"));
-    ccl::ShaderOutput *depthOutput = distanceFromCameraNode->output("Value");
-
     // BSDF
     ccl::PrincipledBsdfNode *bsdfNode = graph->create_node<ccl::PrincipledBsdfNode>();
     bsdfNode->set_transmission(transmissionFactor);
@@ -640,7 +622,6 @@ Material *CyclesEngine::AddMaterial(Scene *scene,
     shader->tag_update(s);
 
     material->colorShader = shader;
-    //return (cycles_wrapper::Material *)shader;
   }
 
   // Create depth shader
@@ -720,17 +701,17 @@ Mesh *CyclesEngine::AddMesh(Scene *scene,
   mesh->set_verts(P_array);
 
   // Create submeshes
-  size_t currentStartingIndex = 0;
+  size_t currentStartingTriangleIndex = 0;
   for (size_t i = 0; i < submeshCount; i++) {
     // Create triangles
     for (size_t j = 0; j < triangleCounts[i]; j++) {
 
-      int v0 = currentStartingIndex + j * 3 + 0;
-      int v1 = currentStartingIndex + j * 3 + 1;
-      int v2 = currentStartingIndex + j * 3 + 2;
+      int v0 = (currentStartingTriangleIndex + j) * 3 + 0;
+      int v1 = (currentStartingTriangleIndex + j) * 3 + 1;
+      int v2 = (currentStartingTriangleIndex + j) * 3 + 2;
       mesh->add_triangle((int)indices[v0], (int)indices[v1], (int)indices[v2], i, true);
     }
-    currentStartingIndex += triangleCounts[i] * 3;
+    currentStartingTriangleIndex += triangleCounts[i];
   }
 
   // Set normals, first face normals
@@ -745,10 +726,13 @@ Mesh *CyclesEngine::AddMesh(Scene *scene,
       fdataNormal[i] = ccl::make_float3(vertexNormalArray[i * 3 + 0],
                                         vertexNormalArray[i * 3 + 1],
                                         vertexNormalArray[i * 3 + 2]);
+      //fdataNormal[i] = ccl::normalize(fdataNormal[i]);
     }
   }
   else {
     mesh->add_vertex_normals();
+    ccl::Attribute *nAttr = mesh->attributes.find(ccl::ATTR_STD_VERTEX_NORMAL);
+    fdataNormal = nAttr->data_float3();
   }
 
   // Set UVs
@@ -758,12 +742,12 @@ Mesh *CyclesEngine::AddMesh(Scene *scene,
     fdataUV = uvAttr->data_float2();
 
     // Loop over triangles
-    size_t currentStartingIndex = 0;
+    size_t currentStartingTriangleIndex = 0;
     for (size_t i = 0; i < submeshCount; i++) {
       for (size_t j = 0; j < triangleCounts[i]; j++) {
-        int j0 = currentStartingIndex + j * 3 + 0;
-        int j1 = currentStartingIndex + j * 3 + 1;
-        int j2 = currentStartingIndex + j * 3 + 2;
+        int j0 = (currentStartingTriangleIndex + j) * 3 + 0;
+        int j1 = (currentStartingTriangleIndex + j) * 3 + 1;
+        int j2 = (currentStartingTriangleIndex + j) * 3 + 2;
         int i0 = indices[j0];
         int i1 = indices[j1];
         int i2 = indices[j2];
@@ -775,7 +759,7 @@ Mesh *CyclesEngine::AddMesh(Scene *scene,
         fdataUV[j2] = ccl::make_float2(vertexUVArray[i2 * 2 + 0],
                                        1.0f - vertexUVArray[i2 * 2 + 1]);
       }
-      currentStartingIndex += triangleCounts[i] * 3;
+      currentStartingTriangleIndex += triangleCounts[i];
     }
   }
 
@@ -788,24 +772,28 @@ Mesh *CyclesEngine::AddMesh(Scene *scene,
     float *fdataTangentSign = attrTangentSign->data_float();
     ccl::array<ccl::float3> &vertices = mesh->get_verts();
 
-    size_t currentStartingIndex = 0;
+    size_t currentStartingTriangleIndex = 0;
     for (size_t i = 0; i < submeshCount; i++) {
       for (long j = 0; j < triangleCounts[i]; j++) {
-        int j0 = currentStartingIndex + j * 3 + 0;
-        int j1 = currentStartingIndex + j * 3 + 1;
-        int j2 = currentStartingIndex + j * 3 + 2;
+        int j0 = (currentStartingTriangleIndex + j) * 3 + 0;
+        int j1 = (currentStartingTriangleIndex + j) * 3 + 1;
+        int j2 = (currentStartingTriangleIndex + j) * 3 + 2;
 
-        int i1 = indices[j0];
-        int i2 = indices[j1];
-        int i3 = indices[j2];
+        int i0 = indices[j0];
+        int i1 = indices[j1];
+        int i2 = indices[j2];
 
-        const ccl::float3 &v1 = vertices[i1];
-        const ccl::float3 &v2 = vertices[i2];
-        const ccl::float3 &v3 = vertices[i3];
+        const ccl::float3 &v1 = vertices[i0];
+        const ccl::float3 &v2 = vertices[i1];
+        const ccl::float3 &v3 = vertices[i2];
 
         const ccl::float2 &w1 = fdataUV[j0];
         const ccl::float2 &w2 = fdataUV[j1];
         const ccl::float2 &w3 = fdataUV[j2];
+
+        const ccl::float3 &n1 = fdataNormal[i0];
+        const ccl::float3 &n2 = fdataNormal[i1];
+        const ccl::float3 &n3 = fdataNormal[i2];
 
         float x1 = v2.x - v1.x;
         float x2 = v3.x - v1.x;
@@ -820,18 +808,11 @@ Mesh *CyclesEngine::AddMesh(Scene *scene,
         float t2 = w3.y - w1.y;
 
         float r = 1.0F / (s1 * t2 - s2 * t1);
-        ccl::float3 sdir = ccl::make_float3(
-            (t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r);
-        ccl::float3 tdir = ccl::make_float3(
-            (s1 * x2 - s2 * x1) * r, (s1 * y2 - s2 * y1) * r, (s1 * z2 - s2 * z1) * r);
-
+        ccl::float3 sdir = ccl::make_float3((t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r);
+        ccl::float3 tdir = ccl::make_float3((s1 * x2 - s2 * x1) * r, (s1 * y2 - s2 * y1) * r, (s1 * z2 - s2 * z1) * r);
         ccl::float3 tan = sdir;
         ccl::float3 bitan = tdir;
-
-        const ccl::float3 &n1 = fdataNormal[i1];
-        const ccl::float3 &n2 = fdataNormal[i2];
-        const ccl::float3 &n3 = fdataNormal[i3];
-
+        
         // Gram-Schmidt orthogonalize
         fdataTangent[j0] = ccl::normalize(tan - n1 * ccl::dot(n1, tan));
         fdataTangent[j1] = ccl::normalize(tan - n2 * ccl::dot(n2, tan));
@@ -842,31 +823,40 @@ Mesh *CyclesEngine::AddMesh(Scene *scene,
         fdataTangentSign[j1] = (ccl::dot(ccl::cross(n2, tan), bitan) < 0.0F) ? -1.0F : 1.0F;
         fdataTangentSign[j2] = (ccl::dot(ccl::cross(n3, tan), bitan) < 0.0F) ? -1.0F : 1.0F;
       }
-      currentStartingIndex += triangleCounts[i] * 3;
+      currentStartingTriangleIndex += triangleCounts[i];
     }
   }
 
   // Set shaders
-  ccl::array<ccl::Node *> used_shaders; // = mesh->get_used_shaders();
+  ccl::array<ccl::Node *> used_shaders;  // = mesh->get_used_shaders();
   for (size_t i = 0; i < submeshCount; i++) {
     ccl::Shader *shader = materials[i] ? (ccl::Shader *)materials[i]->colorShader :
                                          mNameToShader[sDefaultSurfaceShaderName];
     used_shaders.push_back_slow(shader);
   }
   mesh->set_used_shaders(used_shaders);
-  //mesh->tag_update(s, false);
+  mesh->tag_update(s, false);
 
   return (cycles_wrapper::Mesh *)mesh;
 }
 
-void CyclesEngine::SetMeshRenderMode(
+void CyclesEngine::UpdateMeshMaterials(
     Scene *scene, Mesh *mesh, Material **materials, uint submeshCount, RenderMode renderMode)
 {
   ccl::Scene *s = (ccl::Scene *)scene;
   ccl::Mesh *m = (ccl::Mesh *)mesh;
 
-  // Set shaders
-  ccl::array<ccl::Node *> used_shaders;  // = mesh->get_used_shaders();
+  //// Set some flag for the old shaders
+  //ccl::array<ccl::Node *> used_shaders_old = m->get_used_shaders();
+  //for (size_t i = 0; i < used_shaders_old.size(); i++) {
+  //  ccl::Shader *shader = (ccl::Shader *)used_shaders_old[i];
+  //  shader->tag_used(s);
+  //  shader->tag_update(s);
+  //  shader->tag_modified();
+  //}
+
+  // Collect shaders
+  ccl::array<ccl::Node *> used_shaders;
   for (size_t i = 0; i < submeshCount; i++) {
     ccl::Shader *shader;
     switch (renderMode) {
@@ -879,11 +869,16 @@ void CyclesEngine::SetMeshRenderMode(
         shader = (ccl::Shader *)materials[i]->colorShader;
         break;
     }
+    shader->tag_used(s);
+    shader->tag_modified();
     used_shaders.push_back_slow(shader);
   }
 
-    m->set_used_shaders(used_shaders);
-    m->tag_update(s, false);
+  // Set shaders and set appropriate tags
+  m->set_used_shaders(used_shaders);
+  m->tag_used_shaders_modified();
+  m->tag_modified();
+  m->tag_update(s, true);
 }
 
 Light *CyclesEngine::AssignLightToNode(Scene *scene,
