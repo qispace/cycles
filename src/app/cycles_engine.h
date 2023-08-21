@@ -41,6 +41,11 @@ typedef unsigned long long QiObjectID;
 typedef unsigned int uint;
 
 struct Texture {};
+struct TextureTransform {
+  float offset[2];
+  float rotation;
+  float scale[2];
+};
 struct Mesh {};
 struct Light {};
 struct Scene {};
@@ -119,11 +124,14 @@ class CyclesEngine {
   DLL_API Material *AddMaterial(Scene *scene,
                                 const char *name,
                                 Texture *albedoTex,
+                                const TextureTransform &albedoTransform,
                                 float *albedoColor,
                                 Texture *metallicRoughnessTexture,
+                                const TextureTransform &metallicRoughnessTransform,
                                 float metallicFactor,
                                 float roughnessFactor,
                                 Texture *normalTex,
+                                const TextureTransform &normalTransform,
                                 float normalStrength,
                                 float transmissionFactor,
                                 float IOR,

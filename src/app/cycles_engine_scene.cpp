@@ -464,14 +464,38 @@ Texture *CyclesEngine::AddTexture(Scene *scene,
   return (cycles_wrapper::Texture *)ih;
 }
 
+void SetTextureTransform(ccl::ImageTextureNode *itn, const TextureTransform &tt)
+{
+  auto S = ccl::transform_scale(tt.scale[0], tt.scale[1], 1.0f);
+  auto R = ccl::transform_rotate(tt.rotation, ccl::make_float3(0.0f, 0.0f, 1.0f));
+  auto T = ccl::transform_translate(tt.offset[0], 1.0f - tt.offset[1] - tt.scale[1], 0.0f);
+  auto P = ccl::transform_translate(0, -tt.scale[1], 0.0f); // rotation pivot change matrix
+  auto invP = ccl::transform_inverse(P);
+
+  auto M = T * invP * R * P * S;
+  auto invM = ccl::transform_inverse(M);
+
+  // Apply these transforms
+  auto translate = ccl::transform_point(&invM, ccl::make_float3(0.0f, 0.0f, 0.0f));
+  auto scale = ccl::make_float3(1.0f / tt.scale[0], 1.0f / tt.scale[1], 1.0f);
+  auto rotation = ccl::make_float3(0.0f, 0.0f, -tt.rotation);
+
+  itn->set_tex_mapping_translation(translate);
+  itn->set_tex_mapping_rotation(rotation);
+  itn->set_tex_mapping_scale(scale);
+}
+
 Material *CyclesEngine::AddMaterial(Scene *scene,
                                     const char *name,
                                     Texture *albedoTex,
+                                    const TextureTransform &albedoTransform,
                                     float *albedoColor,
                                     Texture *metallicRoughnessTexture,
+                                    const TextureTransform &metallicRoughnessTransform,
                                     float metallicFactor,
                                     float roughnessFactor,
                                     Texture *normalTex,
+                                    const TextureTransform &normalTransform,
                                     float normalStrength,
                                     float transmissionFactor,
                                     float IOR,
@@ -479,7 +503,7 @@ Material *CyclesEngine::AddMaterial(Scene *scene,
                                     float volumeThicknessFactor,
                                     float volumeAttenuationDistance)
 {
-    // Get scene and create a new material
+  // Get scene and create a new material
   ccl::Scene *s = (ccl::Scene *)scene;
   mMaterials.push_back(std::make_unique<Material>());
   Material *material = mMaterials.back().get();
@@ -499,13 +523,14 @@ Material *CyclesEngine::AddMaterial(Scene *scene,
     albedoColorNode->set_value(f3AlbedoColor);
     graph->add(albedoColorNode);
 
-    // Ablbedo
+    // Albedo
     ccl::ShaderOutput *albedoOutput = nullptr;
     if (albedoTex != nullptr) {
       ccl::ImageHandle *sharedImageHandle = (ccl::ImageHandle *)albedoTex;
+      material->usedImages.insert(sharedImageHandle);
       ccl::ImageTextureNode *albedoImageNode = graph->create_node<ccl::ImageTextureNode>();
       albedoImageNode->handle = *sharedImageHandle;
-      material->usedImages.insert(sharedImageHandle);
+      SetTextureTransform(albedoImageNode, albedoTransform);
       graph->add(albedoImageNode);
 
       ccl::VectorMathNode *multiplyNode = graph->create_node<ccl::VectorMathNode>();
@@ -530,9 +555,10 @@ Material *CyclesEngine::AddMaterial(Scene *scene,
     ccl::ShaderOutput *normalOutput = nullptr;
     if (normalTex != nullptr) {
       ccl::ImageHandle *sharedImageHandle = (ccl::ImageHandle *)normalTex;
+      material->usedImages.insert(sharedImageHandle);
       ccl::ImageTextureNode *normalImageNode = graph->create_node<ccl::ImageTextureNode>();
       normalImageNode->handle = *sharedImageHandle;
-      material->usedImages.insert(sharedImageHandle);
+      SetTextureTransform(normalImageNode, normalTransform);
       graph->add(normalImageNode);
 
       ccl::NormalMapNode *normalMapNode = graph->create_node<ccl::NormalMapNode>();
@@ -556,10 +582,11 @@ Material *CyclesEngine::AddMaterial(Scene *scene,
 
     if (metallicRoughnessTexture != nullptr) {
       ccl::ImageHandle *sharedImageHandle = (ccl::ImageHandle *)metallicRoughnessTexture;
+      material->usedImages.insert(sharedImageHandle);
       ccl::ImageTextureNode *metallicRoughnessImageNode =
           graph->create_node<ccl::ImageTextureNode>();
       metallicRoughnessImageNode->handle = *sharedImageHandle;
-      material->usedImages.insert(sharedImageHandle);
+      SetTextureTransform(metallicRoughnessImageNode, metallicRoughnessTransform);
       graph->add(metallicRoughnessImageNode);
       ccl::SeparateColorNode *separateColorNode = graph->create_node<ccl::SeparateColorNode>();
       graph->add(separateColorNode);
