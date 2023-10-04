@@ -36,6 +36,86 @@ using namespace cycles_wrapper;
 
 namespace cycles_wrapper {
 
+class SharedMemoryImageOutput {
+  /// unique_ptr to an ImageOutput.
+  using unique_ptr = std::unique_ptr<SharedMemoryImageOutput>;
+
+ public:
+  SharedMemoryImageOutput()
+  {
+  }
+
+  ~SharedMemoryImageOutput()
+  {
+    close();
+  }
+
+  void write(const ImageBuf &imgBuff)
+  {
+    int width = imgBuff.oriented_width();
+    int height = imgBuff.oriented_height();
+    int channels = imgBuff.nchannels();
+    for (size_t i = 0; i < width; i++) {
+      for (size_t j = 0; j < height; j++) {
+        float rgba[4];
+        imgBuff.getpixel(i, j, rgba, channels);
+        auto pixelSize = sizeof(float) * channels;
+        int offset = pixelSize * (i * height + j);
+        memcpy_s((char *)(pView) + offset, pixelSize, rgba, pixelSize);
+      }
+    }
+  }
+
+  float* GetPixels()
+  {
+    return (float *)(pView);
+  }
+
+  void close()
+  {
+    // Unmap the memory-mapped file
+    if (pView) {
+      UnmapViewOfFile(pView);
+      pView = nullptr;
+    }
+    // Close the handle
+    if (hMapFile) {
+      CloseHandle(hMapFile);
+      hMapFile = nullptr;
+    }
+  }
+
+  static unique_ptr create(const ccl::string_view filename)
+  {
+    auto retVal = std::make_unique<SharedMemoryImageOutput>();
+
+    // Open the memory-mapped file for read/write access
+    std::wstring filenameW(filename.begin(), filename.end());
+    LPCWSTR memoryMapName = filenameW.c_str();
+    retVal->hMapFile = OpenFileMapping(FILE_MAP_READ | FILE_MAP_WRITE, FALSE, memoryMapName);
+    if (retVal->hMapFile == nullptr) {
+      // std::cerr << "Failed to open memory-mapped file." << std::endl;
+      return nullptr;
+    }
+
+    // Map the memory-mapped file into the current process's address space
+    retVal->pView = MapViewOfFile(retVal->hMapFile, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0);
+
+    if (retVal->pView == nullptr) {
+      // std::cerr << "Failed to map memory-mapped file into address space." << std::endl;
+      CloseHandle(retVal->hMapFile);
+      retVal->hMapFile = nullptr;
+      return nullptr;
+    }
+
+    return retVal;
+  }
+
+ private:
+  HANDLE hMapFile = nullptr;
+  LPVOID pView = nullptr;
+};
+
 class OfflineCycles_OIIOOutputDriver : public OIIOOutputDriver {
  public:
   OfflineCycles_OIIOOutputDriver(const ccl::string_view filepath,
@@ -53,86 +133,132 @@ class OfflineCycles_OIIOOutputDriver : public OIIOOutputDriver {
     }
 
     log_(string_printf("OFFLINE_CYCLES_STATUS: Writing image %s", filepath_.c_str()));
-
-    unique_ptr<ImageOutput> image_output(ImageOutput::create(filepath_));
-    if (image_output == nullptr) {
-      log_("OFFLINE_CYCLES_STATUS: Failed to create image file");
-      return;
-    }
-
     const int width = tile.size.x;
     const int height = tile.size.y;
+    const int pixelCount = width * height;
+    int channels = (IsSingleChannelFloat) ? 1 : 4;
+    if (UseSharedMemory) {
+      unique_ptr<SharedMemoryImageOutput> shared_memory_image_output;
+      shared_memory_image_output = SharedMemoryImageOutput::create(filepath_);
+      auto pixels = shared_memory_image_output->GetPixels();
 
-    vector<float> pixels(width * height * 4);
-    if (!tile.get_pass_pixels(pass_, 4, pixels.data())) {
-      log_("OFFLINE_CYCLES_STATUS: Failed to read render pass pixels");
-      return;
-    }
-
-    // Flip image horizontally to account for the difference in the coordinate system
-    if (FlipHorizontally) {
-      for (size_t i = 0; i < height; i++) {
-        for (size_t j = 0; j < width / 2; j++) {
-          int leftPixelIndex = (i * width) + j;
-          int rightPixelIndex = (i * width) + (width - j - 1);
-          std::swap(pixels[leftPixelIndex * 4 + 0], pixels[rightPixelIndex * 4 + 0]);  // R
-          std::swap(pixels[leftPixelIndex * 4 + 1], pixels[rightPixelIndex * 4 + 1]);  // G
-          std::swap(pixels[leftPixelIndex * 4 + 2], pixels[rightPixelIndex * 4 + 2]);  // B
-          std::swap(pixels[leftPixelIndex * 4 + 3], pixels[rightPixelIndex * 4 + 3]);  // A
+      if (IsSingleChannelFloat) {
+        vector<float> pixelsVec(width * height * 4);
+        if (!tile.get_pass_pixels(pass_, 4, pixelsVec.data())) {
+          log_("OFFLINE_CYCLES_STATUS: Failed to read render pass pixels");
+          return;
+        }
+        for (size_t i = 0; i < pixelCount; i++) {
+          pixels[i] = pixelsVec[i * 4 + 0]; // red channel
         }
       }
-    }
+      else {
+        if (!tile.get_pass_pixels(pass_, channels, pixels)) {
+          log_("OFFLINE_CYCLES_STATUS: Failed to read render pass pixels");
+          return;
+        }
+      }
 
-    if (IsSingleChannelFloat) {
-
-      vector<float> pixelsSingleChannel(width * height * 1);
-      for (size_t i = 0; i < height; i++) {
+      // Flip image vertically
+      for (size_t i = 0; i < height / 2; i++) {
         for (size_t j = 0; j < width; j++) {
-          int pixelIndex = (i * width) + j;
-          pixelsSingleChannel[pixelIndex] = pixels[pixelIndex * 4 + 0];  // R
+          int first = (i * width) + j;
+          int last = ((height - i - 1) * width) + j;
+          for (size_t k = 0; k < channels; k++) {
+            std::swap(pixels[first * channels + k], pixels[last * channels + k]);
+          }
         }
       }
 
-      ImageSpec spec(width, height, 1, TypeDesc::FLOAT);
-      if (!image_output->open(filepath_, spec)) {
-        log_("OFFLINE_CYCLES_STATUS: Failed to create image file");
-        return;
+      // Flip image horizontally to account for the difference in the coordinate system
+      if (FlipHorizontally) {
+        for (size_t i = 0; i < height; i++) {
+          for (size_t j = 0; j < width / 2; j++) {
+            int first = (i * width) + j;
+            int last = (i * width) + (width - j - 1);
+            for (size_t k = 0; k < channels; k++) {
+              std::swap(pixels[first * channels + k], pixels[last * channels + k]);
+            }
+          }
+        }
       }
 
-      /* Manipulate offset and stride to convert from bottom-up to top-down convention. */
-      ImageBuf image_buffer(spec,
-                            pixelsSingleChannel.data() + (height - 1) * width * 1,
-                            AutoStride,
-                            -width * 1 * sizeof(float),
-                            AutoStride);
-
-      // Write to disk and close
-      TypeDesc format = TypeDesc::FLOAT;
-      image_buffer.set_write_format(format);
-      image_buffer.write(image_output.get());
-      image_output->close();
     }
-    else {
+    else  // do not use shared memory, write to file
+    {
 
-      ImageSpec spec(width, height, 4, TypeDesc::FLOAT);
+      vector<float> pixels(width * height * 4);
+      if (!tile.get_pass_pixels(pass_, 4, pixels.data())) {
+        log_("OFFLINE_CYCLES_STATUS: Failed to read render pass pixels");
+        return;
+      }
+
+      // Flip image horizontally to account for the difference in the coordinate system
+      if (FlipHorizontally) {
+        for (size_t i = 0; i < height; i++) {
+          for (size_t j = 0; j < width / 2; j++) {
+            int leftPixelIndex = (i * width) + j;
+            int rightPixelIndex = (i * width) + (width - j - 1);
+            std::swap(pixels[leftPixelIndex * 4 + 0], pixels[rightPixelIndex * 4 + 0]);  // R
+            std::swap(pixels[leftPixelIndex * 4 + 1], pixels[rightPixelIndex * 4 + 1]);  // G
+            std::swap(pixels[leftPixelIndex * 4 + 2], pixels[rightPixelIndex * 4 + 2]);  // B
+            std::swap(pixels[leftPixelIndex * 4 + 3], pixels[rightPixelIndex * 4 + 3]);  // A
+          }
+        }
+      }
+
+      // Create the image file
+      ImageSpec spec;
+      if (IsSingleChannelFloat) {
+        spec = ImageSpec(width, height, 1, TypeDesc::FLOAT);
+      }
+      else {
+        spec = ImageSpec(width, height, 4, TypeDesc::FLOAT);
+      }
+      unique_ptr<SharedMemoryImageOutput> shared_memory_image_output;
+      unique_ptr<ImageOutput> image_output = ImageOutput::create(filepath_);
+      if (image_output == nullptr) {
+        log_("OFFLINE_CYCLES_STATUS: Failed to create image file");
+        return;
+      }
       if (!image_output->open(filepath_, spec)) {
         log_("OFFLINE_CYCLES_STATUS: Failed to create image file");
         return;
       }
+      const char *formatName = image_output->format_name();
 
-      /* Manipulate offset and stride to convert from bottom-up to top-down convention. */
-      ImageBuf image_buffer(spec,
-                            pixels.data() + (height - 1) * width * 4,
-                            AutoStride,
-                            -width * 4 * sizeof(float),
-                            AutoStride);
+      ImageBuf image_buffer;
+      if (IsSingleChannelFloat) {
+        vector<float> pixelsSingleChannel(width * height * 1);
+        for (size_t i = 0; i < height; i++) {
+          for (size_t j = 0; j < width; j++) {
+            int pixelIndex = (i * width) + j;
+            pixelsSingleChannel[pixelIndex] = pixels[pixelIndex * 4 + 0];  // R
+          }
+        }
 
-      /* Apply gamma correction for (some) non-linear file formats.
-       * TODO: use OpenColorIO view transform if available. */
-      if (ColorSpaceManager::detect_known_colorspace(
-              u_colorspace_auto, "", image_output->format_name(), true) == u_colorspace_srgb) {
-        const float g = 1.0f / 2.2f;
-        ImageBufAlgo::pow(image_buffer, image_buffer, {g, g, g, 1.0f});
+        /* Manipulate offset and stride to convert from bottom-up to top-down convention. */
+        image_buffer = ImageBuf(spec,
+                                pixelsSingleChannel.data() + (height - 1) * width * 1,
+                                AutoStride,
+                                -width * 1 * sizeof(float),
+                                AutoStride);
+      }
+      else {
+        /* Manipulate offset and stride to convert from bottom-up to top-down convention. */
+        image_buffer = ImageBuf(spec,
+                                pixels.data() + (height - 1) * width * 4,
+                                AutoStride,
+                                -width * 4 * sizeof(float),
+                                AutoStride);
+
+        /* Apply gamma correction for (some) non-linear file formats.
+         * TODO: use OpenColorIO view transform if available. */
+        if (ColorSpaceManager::detect_known_colorspace(u_colorspace_auto, "", formatName, true) ==
+            u_colorspace_srgb) {
+          const float g = 1.0f / 2.2f;
+          ImageBufAlgo::pow(image_buffer, image_buffer, {g, g, g, 1.0f});
+        }
       }
 
       // Write to disk and close
@@ -143,14 +269,16 @@ class OfflineCycles_OIIOOutputDriver : public OIIOOutputDriver {
     }
   }
 
-  void UpdateFilePath(const ccl::string_view filepath)
+  void UpdateFilePath(const ccl::string_view filepath, bool useSharedMemory)
   {
     filepath_ = filepath;
+    UseSharedMemory = useSharedMemory;
   }
 
-  public:
+ public:
   bool FlipHorizontally;
   bool IsSingleChannelFloat;
+  bool UseSharedMemory;
 };
 
 }  // namespace cycles_wrapper
@@ -335,15 +463,13 @@ void OfflineCycles::ResetSession()
   CyclesEngine::ResetSession();
 }
 
-bool OfflineCycles::RenderScene(const char *filePathDestination)
+bool OfflineCycles::RenderScene(const char *fileNameDest, bool useSharedMemory)
 {
     // Coordinate system-based correction is not needed for panoramic for some reason
   mOutputDriver->FlipHorizontally = mOptions.session->scene->camera->get_camera_type() !=
                                     CameraType::Panoramic;
 
-
-
-  mOutputDriver->UpdateFilePath(filePathDestination);
+  mOutputDriver->UpdateFilePath(fileNameDest, useSharedMemory);
   path_init();
   ResetSession();
   mOptions.session->start();

@@ -11,7 +11,7 @@ class OfflineCycles : public CyclesEngine {
   DLL_API OfflineCycles();
   DLL_API virtual ~OfflineCycles();
 
-  DLL_API bool RenderScene(const char *filePathDestination);
+  DLL_API bool RenderScene(const char *fileNameDest, bool useSharedMemory);
   DLL_API virtual bool SessionInit();
   DLL_API virtual bool SessionExit();
   DLL_API virtual void PostSceneUpdate();

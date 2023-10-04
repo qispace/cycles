@@ -225,15 +225,15 @@ void CyclesEngine::SetSceneMaxDepth(float maxDepth)
  void CyclesEngine::SetSceneBackgroundColor(float *color)
 {
   ccl::Shader *shader = mNameToShader[sBackgroundShaderName];
-  ccl::BackgroundNode *backgroundNode = nullptr;
+  ccl::ColorNode *colorNode = nullptr;
   for (auto &it : shader->graph->nodes) {
-    backgroundNode = dynamic_cast<ccl::BackgroundNode *>(it);
-    if (backgroundNode)
+    colorNode = dynamic_cast<ccl::ColorNode *>(it);
+    if (colorNode)
       break;
   }
 
-  if (backgroundNode) {
-    backgroundNode->set_color(ccl::make_float3(color[0], color[1], color[2]));
+  if (colorNode) {
+    colorNode->set_value(ccl::make_float3(color[0], color[1], color[2]));
     ccl::Scene *scene = mOptions.session->scene;
     shader->tag_update(scene);
   }
