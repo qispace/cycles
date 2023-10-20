@@ -66,7 +66,7 @@ class SharedMemoryImageOutput {
     }
   }
 
-  float* GetPixels()
+  float *GetPixels()
   {
     return (float *)(pView);
   }
@@ -149,13 +149,28 @@ class OfflineCycles_OIIOOutputDriver : public OIIOOutputDriver {
           return;
         }
         for (size_t i = 0; i < pixelCount; i++) {
-          pixels[i] = pixelsVec[i * 4 + 0]; // red channel
+          pixels[i] = pixelsVec[i * 4 + 0];  // red channel
         }
       }
-      else {
+      else {  // not a single-channel float
         if (!tile.get_pass_pixels(pass_, channels, pixels)) {
           log_("OFFLINE_CYCLES_STATUS: Failed to read render pass pixels");
           return;
+        }
+        // Apply gamma correction for (some) non-linear file formats.
+        if (ForceSrgbColorConversion) {
+          const float g = 1.0f / 2.2f;
+          const float gArray[] = {g, g, g, 1.0f};
+
+          for (size_t i = 0; i < height; i++) {
+            for (size_t j = 0; j < width; j++) {
+              int pixelIndex = (i * width) + j;
+              for (size_t k = 0; k < channels; k++) {
+                float *pixelChannel = &pixels[pixelIndex * channels + k];
+                *pixelChannel = std::pow(*pixelChannel, gArray[k]);
+              }
+            }
+          }
         }
       }
 
@@ -182,7 +197,6 @@ class OfflineCycles_OIIOOutputDriver : public OIIOOutputDriver {
           }
         }
       }
-
     }
     else  // do not use shared memory, write to file
     {
@@ -243,7 +257,7 @@ class OfflineCycles_OIIOOutputDriver : public OIIOOutputDriver {
                                 AutoStride,
                                 -width * 1 * sizeof(float),
                                 AutoStride);
-      }
+      }  // not a single-channel format
       else {
         /* Manipulate offset and stride to convert from bottom-up to top-down convention. */
         image_buffer = ImageBuf(spec,
@@ -254,8 +268,9 @@ class OfflineCycles_OIIOOutputDriver : public OIIOOutputDriver {
 
         /* Apply gamma correction for (some) non-linear file formats.
          * TODO: use OpenColorIO view transform if available. */
-        if (ColorSpaceManager::detect_known_colorspace(u_colorspace_auto, "", formatName, true) ==
-            u_colorspace_srgb) {
+        if (ForceSrgbColorConversion ||
+            ColorSpaceManager::detect_known_colorspace(u_colorspace_auto, "", formatName, true) ==
+                u_colorspace_srgb) {
           const float g = 1.0f / 2.2f;
           ImageBufAlgo::pow(image_buffer, image_buffer, {g, g, g, 1.0f});
         }
@@ -279,12 +294,12 @@ class OfflineCycles_OIIOOutputDriver : public OIIOOutputDriver {
   bool FlipHorizontally;
   bool IsSingleChannelFloat;
   bool UseSharedMemory;
+  bool ForceSrgbColorConversion = false;
 };
 
 }  // namespace cycles_wrapper
 
-OfflineCycles::OfflineCycles()
-    : CyclesEngine()
+OfflineCycles::OfflineCycles() : CyclesEngine()
 {
   // IO
   mOutputFilepath = "result.png";
@@ -347,14 +362,12 @@ OfflineCycles::OfflineCycles()
 
 OfflineCycles::~OfflineCycles()
 {
-
 }
 
 void OfflineCycles::SessionPrintStatus()
 {
   if (!mOptions.session)
     return;
-
 
   /* get status */
   int sample = mOptions.session->progress.get_current_sample();
@@ -366,7 +379,8 @@ void OfflineCycles::SessionPrintStatus()
     status += ": " + substatus;
 
   /* print status */
-  status = string_printf("OFFLINE_CYCLES_STATUS: Progress %05.2f   %s", (double)progress * 100, status.c_str());
+  status = string_printf(
+      "OFFLINE_CYCLES_STATUS: Progress %05.2f   %s", (double)progress * 100, status.c_str());
   Log(LOG_TYPE_DEBUG, status);
 
   mCurrentSample = sample;
@@ -383,13 +397,12 @@ bool OfflineCycles::SessionInit()
         mOutputFilepath, mOptions.output_pass, [this](const std::string &str) {
           this->Log(LOG_TYPE_INFO, str);
         });
-    mOutputDriver = (OfflineCycles_OIIOOutputDriver*)driver.get();
+    mOutputDriver = (OfflineCycles_OIIOOutputDriver *)driver.get();
     mOptions.session->set_output_driver(std::move(driver));
   }
 
   if (mOptions.session_params->background && !mOptions.quiet)
-    mOptions.session->progress.set_update_callback(
-        [this]() { this->SessionPrintStatus(); });
+    mOptions.session->progress.set_update_callback([this]() { this->SessionPrintStatus(); });
 
   // Load scene
   DefaultSceneInit();
@@ -465,7 +478,7 @@ void OfflineCycles::ResetSession()
 
 bool OfflineCycles::RenderScene(const char *fileNameDest, bool useSharedMemory)
 {
-    // Coordinate system-based correction is not needed for panoramic for some reason
+  // Coordinate system-based correction is not needed for panoramic for some reason
   mOutputDriver->FlipHorizontally = mOptions.session->scene->camera->get_camera_type() !=
                                     CameraType::Panoramic;
 
