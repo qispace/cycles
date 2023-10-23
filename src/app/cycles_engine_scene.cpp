@@ -153,10 +153,14 @@ void CyclesEngine::CleanScene(Scene *scene)
   std::set<const ccl::ImageHandle *> imagesToKeep;
   auto matVectorIte = std::begin(mMaterials);
   while (matVectorIte != std::end(mMaterials)) {
-    if (shadersToKeep.find((*matVectorIte)->colorShader) == shadersToKeep.end() &&
-        shadersToKeep.find((*matVectorIte)->depthShader) == shadersToKeep.end()) {
-      s->delete_node(matVectorIte->get()->colorShader);
+    if (shadersToKeep.find((*matVectorIte)->pbrShader) == shadersToKeep.end() &&
+        shadersToKeep.find((*matVectorIte)->depthShader) == shadersToKeep.end() &&
+        shadersToKeep.find((*matVectorIte)->normalShader) == shadersToKeep.end() &&
+        shadersToKeep.find((*matVectorIte)->albedoShader) == shadersToKeep.end()) {
+      s->delete_node(matVectorIte->get()->pbrShader);
       s->delete_node(matVectorIte->get()->depthShader);
+      s->delete_node(matVectorIte->get()->normalShader);
+      s->delete_node(matVectorIte->get()->albedoShader);
       matVectorIte = mMaterials.erase(matVectorIte);
     }
     else  // keep
@@ -508,11 +512,9 @@ Material *CyclesEngine::AddMaterial(Scene *scene,
   mMaterials.push_back(std::make_unique<Material>());
   Material *material = mMaterials.back().get();
 
-  // Create color shader
+  // Create PBR
   {
     ccl::ShaderGraph *graph = new ccl::ShaderGraph();
-
-    // Compute the albedo color
     // ccl::float3 f3AlbedoColor = ccl::make_float3(albedoColor[0] * volumeAttenuationColor[0],
     //                                             albedoColor[1] * volumeAttenuationColor[1],
     //                                             albedoColor[2] * volumeAttenuationColor[2]);
@@ -644,18 +646,16 @@ Material *CyclesEngine::AddMaterial(Scene *scene,
     graph->connect(bsdfOutput, graph->output()->input("Surface"));
 
     ccl::Shader *shader = s->create_node<ccl::Shader>();
-    shader->name = OpenImageIO_v2_4::ustring(name);
+    shader->name = OpenImageIO_v2_4::ustring(std::string(name) + "_pbr");
     shader->set_graph(graph);
     shader->tag_update(s);
 
-    material->colorShader = shader;
+    material->pbrShader = shader;
   }
 
   // Create depth shader
   {
     ccl::ShaderGraph *graph = new ccl::ShaderGraph();
-
-    // Depth
     ccl::GeometryNode *geometryNode = graph->create_node<ccl::GeometryNode>();
     graph->add(geometryNode);
 
@@ -687,6 +687,99 @@ Material *CyclesEngine::AddMaterial(Scene *scene,
     shader->tag_update(s);
 
     material->depthShader = shader;
+  }
+
+  // Create normal shader
+  {
+    ccl::ShaderGraph *graph = new ccl::ShaderGraph();
+    
+
+
+
+    ccl::ShaderOutput *normalOutput = nullptr;
+    if (normalTex != nullptr) {
+      ccl::ImageHandle *sharedImageHandle = (ccl::ImageHandle *)normalTex;
+      material->usedImages.insert(sharedImageHandle);
+      ccl::ImageTextureNode *normalImageNode = graph->create_node<ccl::ImageTextureNode>();
+      normalImageNode->handle = *sharedImageHandle;
+      SetTextureTransform(normalImageNode, normalTransform);
+      graph->add(normalImageNode);
+
+      ccl::NormalMapNode *normalMapNode = graph->create_node<ccl::NormalMapNode>();
+      normalMapNode->set_space(ccl::NODE_NORMAL_MAP_TANGENT);
+      normalMapNode->set_strength(normalStrength);
+      graph->add(normalMapNode);
+
+      graph->connect(normalImageNode->output("Color"), normalMapNode->input("Color"));
+      normalOutput = normalMapNode->output("Normal");
+    }
+    else
+    {
+      ccl::GeometryNode *geometryNode = graph->create_node<ccl::GeometryNode>();
+      graph->add(geometryNode);
+      normalOutput = geometryNode->output("Normal");
+    }
+
+    ccl::VectorTransformNode *objectTransformNode = graph->create_node<ccl::VectorTransformNode>();
+    objectTransformNode->set_transform_type(ccl::NODE_VECTOR_TRANSFORM_TYPE_NORMAL);
+    objectTransformNode->set_convert_from(ccl::NODE_VECTOR_TRANSFORM_CONVERT_SPACE_WORLD);
+    objectTransformNode->set_convert_to(ccl::NODE_VECTOR_TRANSFORM_CONVERT_SPACE_CAMERA);
+    graph->add(objectTransformNode);
+
+    graph->connect(normalOutput, objectTransformNode->input("Vector"));
+    graph->connect(objectTransformNode->output("Vector"), graph->output()->input("Surface"));
+
+    ccl::Shader *shader = s->create_node<ccl::Shader>();
+    shader->name = OpenImageIO_v2_4::ustring(std::string(name) + "_normal");
+    shader->set_graph(graph);
+    shader->tag_update(s);
+
+    material->normalShader = shader;
+  }
+
+  // Create albedo shader
+  {
+    ccl::ShaderGraph *graph = new ccl::ShaderGraph();
+    // ccl::float3 f3AlbedoColor = ccl::make_float3(albedoColor[0] * volumeAttenuationColor[0],
+    //                                             albedoColor[1] * volumeAttenuationColor[1],
+    //                                             albedoColor[2] * volumeAttenuationColor[2]);
+    ccl::float3 f3AlbedoColor = ccl::make_float3(albedoColor[0], albedoColor[1], albedoColor[2]);
+    float alpha = albedoColor[3];
+    ccl::ColorNode *albedoColorNode = graph->create_node<ccl::ColorNode>();
+
+    albedoColorNode->set_value(f3AlbedoColor);
+    graph->add(albedoColorNode);
+
+    // Albedo
+    ccl::ShaderOutput *albedoOutput = nullptr;
+    if (albedoTex != nullptr) {
+      ccl::ImageHandle *sharedImageHandle = (ccl::ImageHandle *)albedoTex;
+      material->usedImages.insert(sharedImageHandle);
+      ccl::ImageTextureNode *albedoImageNode = graph->create_node<ccl::ImageTextureNode>();
+      albedoImageNode->handle = *sharedImageHandle;
+      SetTextureTransform(albedoImageNode, albedoTransform);
+      graph->add(albedoImageNode);
+
+      ccl::VectorMathNode *multiplyNode = graph->create_node<ccl::VectorMathNode>();
+      multiplyNode->set_math_type(ccl::NODE_VECTOR_MATH_MULTIPLY);
+      graph->add(multiplyNode);
+
+      graph->connect(albedoColorNode->output("Color"), multiplyNode->input("Vector1"));
+      graph->connect(albedoImageNode->output("Color"), multiplyNode->input("Vector2"));
+      albedoOutput = multiplyNode->output("Vector");
+    }
+    else {
+      albedoOutput = albedoColorNode->output("Color");
+    }
+
+    graph->connect(albedoOutput, graph->output()->input("Surface"));
+
+    ccl::Shader *shader = s->create_node<ccl::Shader>();
+    shader->name = OpenImageIO_v2_4::ustring(std::string(name) + "_albedo");
+    shader->set_graph(graph);
+    shader->tag_update(s);
+
+    material->albedoShader = shader;
   }
 
   return material;
@@ -857,7 +950,7 @@ Mesh *CyclesEngine::AddMesh(Scene *scene,
   // Set shaders
   ccl::array<ccl::Node *> used_shaders;  // = mesh->get_used_shaders();
   for (size_t i = 0; i < submeshCount; i++) {
-    ccl::Shader *shader = materials[i] ? (ccl::Shader *)materials[i]->colorShader :
+    ccl::Shader *shader = materials[i] ? (ccl::Shader *)materials[i]->pbrShader :
                                          mNameToShader[sDefaultSurfaceShaderName];
     used_shaders.push_back_slow(shader);
   }
@@ -891,9 +984,14 @@ void CyclesEngine::UpdateMeshMaterials(
         shader = (ccl::Shader *)materials[i]->depthShader;
         break;
       case cycles_wrapper::Normal:
-      case cycles_wrapper::Color:
+        shader = (ccl::Shader *)materials[i]->normalShader;
+        break;
+      case cycles_wrapper::Albedo:
+        shader = (ccl::Shader *)materials[i]->albedoShader;
+        break;
+      case cycles_wrapper::PBR:
       default:
-        shader = (ccl::Shader *)materials[i]->colorShader;
+        shader = (ccl::Shader *)materials[i]->pbrShader;
         break;
     }
     shader->tag_used(s);

@@ -328,6 +328,8 @@ OfflineCycles::OfflineCycles() : CyclesEngine()
 
   mOptions.session_params->use_profiling = profile;
   mOptions.session_params->background = true;
+  mOptions.interactive = false;
+  //mOptions.session_params->threads = 32;
 
   if (mOptions.session_params->tile_size > 0) {
     mOptions.session_params->use_auto_tile = true;

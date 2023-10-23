@@ -62,9 +62,9 @@ struct Node {
   ccl::Object *assignedMeshObject = nullptr;
   ccl::Light *assignedLightObject = nullptr;
 };
-enum RenderMode { Color, Depth, Normal };
+enum RenderMode { PBR, Depth, Normal, Albedo };
 struct Material {
-  ccl::Shader *colorShader, *depthShader;
+  ccl::Shader *pbrShader, *depthShader, *normalShader, *albedoShader;
   std::set<ccl::ImageHandle *> usedImages;
 };
 enum CameraType { Perspective, Orthographic, Panoramic };
@@ -149,7 +149,7 @@ class CyclesEngine {
                         uint *triangleCounts,
                         uint submeshCount);
   DLL_API void UpdateMeshMaterials(
-      Scene *scene, Mesh *mesh, Material **materials, uint submeshCount, RenderMode renderMode = RenderMode::Normal);
+      Scene *scene, Mesh *mesh, Material **materials, uint submeshCount, RenderMode renderMode = RenderMode::PBR);
   DLL_API Light *AssignLightToNode(Scene *scene,
                                    Node *node,
                                    const char *name,

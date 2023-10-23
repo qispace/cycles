@@ -125,6 +125,8 @@ InteractiveCycles::InteractiveCycles()
   }
 
   mOptions.session_params->use_profiling = profile;
+  mOptions.interactive = true;
+  //mOptions.session_params->threads = 14;
   //mOptions.session_params->background = true;
 
   if (mOptions.session_params->tile_size > 0) {
