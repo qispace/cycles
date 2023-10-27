@@ -671,6 +671,7 @@ Material *CyclesEngine::AddMaterial(Scene *scene,
     graph->add(distanceFromCameraNode);
 
     ccl::MathNode *ceilNode = graph->create_node<ccl::MathNode>();
+    ceilNode->name = "max_depth_node";
     ceilNode->set_math_type(ccl::NODE_MATH_MINIMUM);
     ceilNode->set_value1(mMaxDepth);
     graph->add(ceilNode);
@@ -692,10 +693,6 @@ Material *CyclesEngine::AddMaterial(Scene *scene,
   // Create normal shader
   {
     ccl::ShaderGraph *graph = new ccl::ShaderGraph();
-    
-
-
-
     ccl::ShaderOutput *normalOutput = nullptr;
     if (normalTex != nullptr) {
       ccl::ImageHandle *sharedImageHandle = (ccl::ImageHandle *)normalTex;
@@ -980,8 +977,29 @@ void CyclesEngine::UpdateMeshMaterials(
   for (size_t i = 0; i < submeshCount; i++) {
     ccl::Shader *shader;
     switch (renderMode) {
-      case cycles_wrapper::Depth:
+      case cycles_wrapper::Depth: {
+        // First get the shader
         shader = (ccl::Shader *)materials[i]->depthShader;
+        // Then update the max depth value
+        ccl::MathNode *node = nullptr;
+        for (auto &it : shader->graph->nodes) {
+          auto castedNode = dynamic_cast<ccl::MathNode *>(it);
+          if (castedNode && castedNode->name.compare("max_depth_node") == 0)
+          {
+            node = castedNode;
+            break;
+          }
+        }
+
+        if (node) {
+          bool change = node->get_value1() != mMaxDepth;
+          if (change) {
+            node->set_value1(mMaxDepth);
+            ccl::Scene *scene = mOptions.session->scene;
+            shader->tag_update(scene);
+          }
+        }
+      }
         break;
       case cycles_wrapper::Normal:
         shader = (ccl::Shader *)materials[i]->normalShader;
