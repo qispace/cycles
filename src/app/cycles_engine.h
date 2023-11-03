@@ -60,7 +60,7 @@ struct Node {
   float s[3];
   bool visible = true;
   ccl::Object *assignedMeshObject = nullptr;
-  ccl::Light *assignedLightObject = nullptr;
+  std::vector<ccl::Light*> assignedLightObjects;
 };
 enum RenderMode { PBR, Depth, Normal, Albedo };
 struct Material {
@@ -150,16 +150,15 @@ class CyclesEngine {
                         uint submeshCount);
   DLL_API void UpdateMeshMaterials(
       Scene *scene, Mesh *mesh, Material **materials, uint submeshCount, RenderMode renderMode = RenderMode::PBR);
-  DLL_API Light *AssignLightToNode(Scene *scene,
-                                   Node *node,
-                                   const char *name,
-                                   int type,
-                                   float *color,
-                                   float intensity,
-                                   float range,
-                                   float innerConeAngle,
-                                   float outerConeAngle);
-
+  DLL_API Light *AddLightToNode(Scene *scene,
+                                Node *node,
+                                int type,
+                                float *color,
+                                float intensity,
+                                float range,
+                                float innerConeAngle,
+                                float outerConeAngle);
+  DLL_API bool RemoveLightFromNode(Scene *scene, Node *node, Light *light);
   DLL_API bool AssignMeshToNode(Scene *scene, Node *node, Mesh *mesh);
 
  protected:

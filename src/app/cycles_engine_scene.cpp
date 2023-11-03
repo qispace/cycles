@@ -332,12 +332,17 @@ void CyclesEngine::RemoveNode(Node *node)
   if (node == nullptr)
     return;
 
-  // Now remove this node
+  // Remove mesh
   ccl::Scene *s = (ccl::Scene *)node->scene;
   if (node->assignedMeshObject)
     s->delete_node(node->assignedMeshObject);
-  if (node->assignedLightObject)
-    s->delete_node(node->assignedLightObject);
+
+  // Remove lights
+  for (size_t i = 0; i < node->assignedLightObjects.size(); i++) {
+    if (node->assignedLightObjects[i])
+      s->delete_node(node->assignedLightObjects[i]);
+  }
+  node->assignedLightObjects.clear();
 
   // Remove the node from the parent
   if (node->parent) {
@@ -379,22 +384,24 @@ void CyclesEngine::UpdateNodeTransform(Node *node, float t[3], float r[4], float
     node->assignedMeshObject->tag_update(scene);
   }
 
-    if (node->assignedLightObject) {
-    ccl::float3 dir = ccl::make_float3(0.0f, 0.0f, -1.0f);
-    dir = ccl::transform_direction(transform, dir);
-    ccl::float3 pos = ccl::make_float3(0.0f);
-    pos = ccl::transform_point(transform, pos);
-    ccl::float3 axisu = ccl::cross(dir, ccl::make_float3(0.0f, -1.0f, 0.0f));
-    axisu = ccl::normalize(axisu);
-    ccl::float3 axisv = ccl::cross(dir, axisu);
-    axisv = ccl::normalize(axisv);
-    ccl::Light *l = (ccl::Light *)node->assignedLightObject;
-    l->set_dir(dir);
-    l->set_co(pos);
-    l->set_axisu(axisu);
-    l->set_axisv(axisv);
-    l->set_tfm(*transform);
-    l->tag_update(scene);
+  for (size_t i = 0; i < node->assignedLightObjects.size(); i++) {
+    ccl::Light *light = node->assignedLightObjects[i];
+    if (light != nullptr) {
+      ccl::float3 dir = ccl::make_float3(0.0f, 0.0f, -1.0f);
+      dir = ccl::transform_direction(transform, dir);
+      ccl::float3 pos = ccl::make_float3(0.0f);
+      pos = ccl::transform_point(transform, pos);
+      ccl::float3 axisu = ccl::cross(dir, ccl::make_float3(0.0f, -1.0f, 0.0f));
+      axisu = ccl::normalize(axisu);
+      ccl::float3 axisv = ccl::cross(dir, axisu);
+      axisv = ccl::normalize(axisv);
+      light->set_dir(dir);
+      light->set_co(pos);
+      light->set_axisu(axisu);
+      light->set_axisv(axisv);
+      light->set_tfm(*transform);
+      light->tag_update(scene);
+    }
   }
 
   memcpy_s(node->t, sizeof(float) * 3, t, sizeof(float) * 3);
@@ -422,11 +429,15 @@ void CyclesEngine::UpdateNodeVisibility(Node *node, bool visible)
     node->assignedMeshObject->tag_update(scene);
   }
 
-  if (node->assignedLightObject) {
-    ccl::Shader *shader = (visible) ? mNameToShader[sLightShaderName] :
-                                      mNameToShader[sDisabledLightShaderName];
-    node->assignedLightObject->set_shader(shader);
-    node->assignedLightObject->tag_update(scene);
+  for (size_t i = 0; i < node->assignedLightObjects.size(); i++) {
+    ccl::Light *light = node->assignedLightObjects[i];
+    if (light) {
+
+      ccl::Shader *shader = (visible) ? mNameToShader[sLightShaderName] :
+                                        mNameToShader[sDisabledLightShaderName];
+      light->set_shader(shader);
+      light->tag_update(scene);
+    }
   }
 
   node->visible = visible;
@@ -1024,21 +1035,17 @@ void CyclesEngine::UpdateMeshMaterials(
   m->tag_update(s, true);
 }
 
-Light *CyclesEngine::AssignLightToNode(Scene *scene,
-                                       Node *node,
-                                       const char *name,
-                                       int type,
-                                       float *color,
-                                       float intensity,
-                                       float range,
-                                       float innerConeAngle,
-                                       float outerConeAngle)
+Light *CyclesEngine::AddLightToNode(Scene *scene,
+                                    Node *node,
+                                    int type,
+                                    float *color,
+                                    float intensity,
+                                    float range,
+                                    float innerConeAngle,
+                                    float outerConeAngle)
 {
   if (!scene || !node)
-    return false;
-
-  if (node->assignedLightObject)
-    return false; // can't have an already assigned object
+    return nullptr;
 
   ccl::Scene *s = (ccl::Scene *)scene;
   ccl::Light *light = new ccl::Light();
@@ -1104,8 +1111,30 @@ Light *CyclesEngine::AssignLightToNode(Scene *scene,
   light->set_shader(mNameToShader[sLightShaderName]);
   light->set_strength(strength);
   light->tag_update(s);
-  node->assignedLightObject = light;
+  node->assignedLightObjects.push_back(light);
   return (cycles_wrapper::Light *)light;
+}
+
+bool CyclesEngine::RemoveLightFromNode(Scene *scene, Node *node, Light *light)
+{
+  if (!scene || !node || !light)
+    return false;
+
+  ccl::Scene *s = (ccl::Scene *)scene;
+  ccl::Light *l = (ccl::Light *)light;
+  int eraseCount = 0;
+  size_t sizeBefore = s->lights.size();
+  s->delete_node(l);
+  size_t sizeAfter = s->lights.size();
+  if (sizeBefore == (sizeAfter + 1)) eraseCount++;
+  for (size_t i = 0; i < node->assignedLightObjects.size(); i++) {
+    if (node->assignedLightObjects[i] == l) {
+      node->assignedLightObjects.erase(node->assignedLightObjects.begin() + i);
+      eraseCount++;
+      break;
+    }
+  }
+  return (eraseCount == 2);
 }
 
 bool CyclesEngine::AssignMeshToNode(Scene *scene, Node *node, Mesh *mesh)
