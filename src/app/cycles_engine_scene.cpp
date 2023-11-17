@@ -17,6 +17,7 @@
 #include "scene/mesh.h"
 #include "scene/object.h"
 #include "scene/light.h"
+#include "scene/background.h"
 #include "session/buffers.h"
 #include "session/session.h"
 #include "app/cycles_xml.h"
@@ -27,7 +28,8 @@ using namespace cycles_wrapper;
 const std::string CyclesEngine::sDefaultSurfaceShaderName = "qi_shader_default_surface";
 const std::string CyclesEngine::sLightShaderName = "qi_shader_light";
 const std::string CyclesEngine::sDisabledLightShaderName = "qi_shader_light_disabled";
-const std::string CyclesEngine::sBackgroundShaderName = "qi_shader_background";
+const std::string CyclesEngine::sColorBackgroundShaderName = "qi_shader_background_color";
+const std::string CyclesEngine::sSkyBackgroundShaderName = "qi_shader_background_sky";
 
 void CyclesEngine::DefaultSceneInit()
 {
@@ -97,7 +99,7 @@ void CyclesEngine::DefaultSceneInit()
     shader->tag_update(scene);
     mNameToShader[shader->name.c_str()] = shader;
   }
-  // Background (set as default background)
+  // Color Background (set as default background)
   {
     ccl::ShaderGraph *graph = new ccl::ShaderGraph();
 
@@ -108,13 +110,53 @@ void CyclesEngine::DefaultSceneInit()
     graph->connect(colorNode->output("Color"), graph->output()->input("Surface"));
 
     ccl::Shader *shader = scene->create_node<ccl::Shader>();
-    shader->name = sBackgroundShaderName;
+    shader->name = sColorBackgroundShaderName;
     shader->set_graph(graph);
     shader->reference();
     shader->tag_update(scene);
     graph->simplified = true; // prevent further simplification and node removal
     mNameToShader[shader->name.c_str()] = shader;
     scene->default_background = shader;
+    mCurrentBackgroundShaderName = shader->name.c_str();
+  }
+
+  // Sky Background
+  {
+    ccl::ShaderGraph *graph = new ccl::ShaderGraph();
+
+    ccl::TextureCoordinateNode *texCoordNode = graph->create_node<ccl::TextureCoordinateNode>();
+    graph->add(texCoordNode);
+
+    ccl::MappingNode *mappingNode = graph->create_node<ccl::MappingNode>();
+    // Account for the positive z being up, in blender and cycles
+    mappingNode->set_rotation(ccl::make_float3(M_PI_2, 0.0f, 0.0f));
+    graph->add(mappingNode);
+
+    ccl::SkyTextureNode *skyNode = graph->create_node<ccl::SkyTextureNode>();
+    skyNode->set_altitude(0.0f);
+    skyNode->set_sun_disc(false);
+    skyNode->set_sun_size(0.0095f);
+    skyNode->set_sky_type(ccl::NodeSkyType::NODE_SKY_NISHITA);
+    skyNode->set_air_density(1.0f);
+    skyNode->set_dust_density(0.3f);
+    skyNode->set_ozone_density(1.0f);
+    skyNode->set_sun_elevation(M_PI / 16);
+    skyNode->set_sun_rotation(M_PI_2);
+    graph->add(skyNode);
+
+    graph->connect(texCoordNode->output("Generated"), mappingNode->input("Vector"));
+    graph->connect(mappingNode->output("Vector"), skyNode->input("Vector"));
+    graph->connect(skyNode->output("Color"), graph->output()->input("Surface"));
+
+    ccl::Shader *shader = scene->create_node<ccl::Shader>();
+    shader->name = sSkyBackgroundShaderName;
+    shader->set_graph(graph);
+    shader->reference();
+    shader->tag_update(scene);
+    // graph->simplified = true; // prevent further simplification and node removal
+    mNameToShader[shader->name.c_str()] = shader;
+    //scene->default_background = shader;
+    //mCurrentBackgroundShaderName = shader->name.c_str();
   }
 }
 
@@ -226,24 +268,51 @@ void CyclesEngine::SetSceneMaxDepth(float maxDepth)
   mMaxDepth = maxDepth;
 }
 
- void CyclesEngine::SetSceneBackgroundColor(float *color)
+ void CyclesEngine::SetSceneBackground(const BackgroundSettings &bs)
 {
-  ccl::Shader *shader = mNameToShader[sBackgroundShaderName];
-  ccl::ColorNode *colorNode = nullptr;
-  for (auto &it : shader->graph->nodes) {
-    colorNode = dynamic_cast<ccl::ColorNode *>(it);
-    if (colorNode)
+  ccl::Scene *scene = mOptions.session->scene;
+  ccl::Shader *oldShader = mNameToShader[mCurrentBackgroundShaderName];
+  ccl::Shader *shader = nullptr;
+  switch (bs.mType) {
+    case BackgroundSettings::Type::Color: {
+      mCurrentBackgroundShaderName = sColorBackgroundShaderName;
+      mOptions.session->scene->default_background = mNameToShader[mCurrentBackgroundShaderName];
+      shader = mOptions.session->scene->default_background;
+      ccl::ColorNode *colorNode = nullptr;
+      for (auto &it : shader->graph->nodes) {
+        colorNode = dynamic_cast<ccl::ColorNode *>(it);
+        if (colorNode)
+          break;
+      }
+      if (colorNode) {
+        colorNode->set_value(ccl::make_float3(bs.mColor[0], bs.mColor[1], bs.mColor[2]));
+        shader->tag_update(scene);
+        shader->tag_modified();
+      }
+      else {
+        Log(LOG_TYPE_WARNING, "Failed updating the background shader. BackgroundNode not found.");
+      }
+    } break;
+
+    case BackgroundSettings::Type::Sky: {
+      mCurrentBackgroundShaderName = sSkyBackgroundShaderName;
+      mOptions.session->scene->default_background = mNameToShader[mCurrentBackgroundShaderName];
+      shader = mOptions.session->scene->default_background;
+      //shader->tag_update(scene);
+      //shader->tag_modified();
+    } break;
+
+    default:
+      shader = oldShader;
       break;
   }
 
-  if (colorNode) {
-    colorNode->set_value(ccl::make_float3(color[0], color[1], color[2]));
-    ccl::Scene *scene = mOptions.session->scene;
-    shader->tag_update(scene);
-  }
-  else {
-    Log(LOG_TYPE_WARNING,
-        "Failed updating the background shader. BackgroundNode not found.");
+  if (oldShader != shader)
+  {
+    shader->tag_used(scene);
+    scene->background->set_shader(shader);
+    scene->background->tag_modified();
+    scene->background->tag_update(scene);
   }
 }
 

@@ -60,7 +60,7 @@ struct Node {
   float s[3];
   bool visible = true;
   ccl::Object *assignedMeshObject = nullptr;
-  std::vector<ccl::Light*> assignedLightObjects;
+  std::vector<ccl::Light *> assignedLightObjects;
 };
 enum RenderMode { PBR, Depth, Normal, Albedo };
 struct Material {
@@ -68,7 +68,15 @@ struct Material {
   std::set<ccl::ImageHandle *> usedImages;
 };
 enum CameraType { Perspective, Orthographic, Panoramic };
-
+struct BackgroundSettings {
+  enum class Type { Color, Sky } mType;
+  union {
+    float mColor[3];
+    struct Sky {
+      float mSunDirection[3];
+    } mSky;
+  };
+};
 struct Options {
   std::unique_ptr<ccl::Session> session;
   std::unique_ptr<ccl::SceneParams> scene_params;
@@ -98,12 +106,12 @@ class CyclesEngine {
   DLL_API void GetCamera(
       float p[], float d[], float u[], float *n, float *f, float *fov, float *aspect);
 
-    // Scene graph manipulation
+  // Scene graph manipulation
   DLL_API Scene *GetScene();
   DLL_API void CleanScene(Scene *scene);
   DLL_API void ClearScene(Scene *scene);
   DLL_API void SetSceneMaxDepth(float maxDepth);
-  DLL_API void SetSceneBackgroundColor(float *color);
+  DLL_API void SetSceneBackground(const BackgroundSettings &);
   DLL_API Node *AddNode(Scene *scene,
                         const std::string &name,
                         Node *parent,
@@ -152,8 +160,11 @@ class CyclesEngine {
                         uint *indices,
                         uint *triangleCounts,
                         uint submeshCount);
-  DLL_API void UpdateMeshMaterials(
-      Scene *scene, Mesh *mesh, Material **materials, uint submeshCount, RenderMode renderMode = RenderMode::PBR);
+  DLL_API void UpdateMeshMaterials(Scene *scene,
+                                   Mesh *mesh,
+                                   Material **materials,
+                                   uint submeshCount,
+                                   RenderMode renderMode = RenderMode::PBR);
   DLL_API Light *AddLightToNode(Scene *scene,
                                 Node *node,
                                 int type,
@@ -195,7 +206,11 @@ class CyclesEngine {
   static const std::string sLightShaderName;
   static const std::string sDisabledLightShaderName;
   static const std::string sTexturedShaderName;
-  static const std::string sBackgroundShaderName;
+  static const std::string sColorBackgroundShaderName;
+  static const std::string sSkyBackgroundShaderName;
+
+ protected:
+  std::string mCurrentBackgroundShaderName;
 
  private:
   void *mLogObjectPtr = nullptr;

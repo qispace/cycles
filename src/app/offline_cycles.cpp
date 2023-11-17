@@ -435,7 +435,7 @@ void OfflineCycles::PostSceneUpdate()
 
   // Reset the scene
   mOptions.session->scene->reset();
-  mOptions.session->scene->default_background = mNameToShader[sBackgroundShaderName];
+  mOptions.session->scene->default_background = mNameToShader[mCurrentBackgroundShaderName];
 
   // Start the session
   ResetSession();

@@ -156,6 +156,12 @@ void CyclesEngine::SetCamera(float p[], float d[], float u[], CameraType cameraT
   transform_set_column(mCameraTransform.get(), 3, pos);
   mOptions.session->scene->camera->set_matrix(*mCameraTransform);
 
+
+
+   mOptions.session->scene->camera->set_farclip(FLT_MAX);
+
+
+
   // Type
   mCameraType = cameraType;
   switch (mCameraType) {
