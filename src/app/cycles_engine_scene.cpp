@@ -140,8 +140,8 @@ void CyclesEngine::DefaultSceneInit()
     skyNode->set_air_density(1.0f);
     skyNode->set_dust_density(0.3f);
     skyNode->set_ozone_density(1.0f);
-    skyNode->set_sun_elevation(M_PI / 16);
-    skyNode->set_sun_rotation(M_PI_2);
+    skyNode->set_sun_elevation(M_PI_F / 16.0f);
+    skyNode->set_sun_rotation(M_PI_2_F);
     graph->add(skyNode);
 
     graph->connect(texCoordNode->output("Generated"), mappingNode->input("Vector"));
@@ -153,7 +153,7 @@ void CyclesEngine::DefaultSceneInit()
     shader->set_graph(graph);
     shader->reference();
     shader->tag_update(scene);
-    // graph->simplified = true; // prevent further simplification and node removal
+    graph->simplified = true; // prevent further simplification and node removal
     mNameToShader[shader->name.c_str()] = shader;
     //scene->default_background = shader;
     //mCurrentBackgroundShaderName = shader->name.c_str();
@@ -298,8 +298,41 @@ void CyclesEngine::SetSceneMaxDepth(float maxDepth)
       mCurrentBackgroundShaderName = sSkyBackgroundShaderName;
       mOptions.session->scene->default_background = mNameToShader[mCurrentBackgroundShaderName];
       shader = mOptions.session->scene->default_background;
-      //shader->tag_update(scene);
-      //shader->tag_modified();
+      ccl::SkyTextureNode *skyNode = nullptr;
+      for (auto &it : shader->graph->nodes) {
+        skyNode = dynamic_cast<ccl::SkyTextureNode *>(it);
+        if (skyNode)
+          break;
+      }
+      if (skyNode) {
+        float sunElevation = M_PI_F / 16.0f;
+        auto sunDir = ccl::make_float3(
+            bs.mSky.mSunDirection[0], bs.mSky.mSunDirection[1], bs.mSky.mSunDirection[2]);
+        if (ccl::len_squared(sunDir) > 0.0f) {
+          sunDir = ccl::normalize(sunDir);
+          sunElevation = M_PI_2_F - ccl::precise_angle(sunDir, ccl::make_float3(0.0f, 1.0f, 0.0f));
+        }
+        float sunRotation = M_PI_2_F;
+        auto sunDirFlat = ccl::make_float3(
+            bs.mSky.mSunDirection[0], 0.0f, bs.mSky.mSunDirection[2]);
+        if (ccl::len_squared(sunDirFlat) > 0.0f) {
+          sunDirFlat = ccl::normalize(sunDirFlat);
+          float angleSign = ccl::dot(sunDirFlat, ccl::make_float3(1.0f, 0.0f, 0.0f));
+          angleSign = (angleSign >= 0.0f) ? 1.0f : -1.0f;
+          sunRotation = angleSign *
+                        ccl::precise_angle(sunDirFlat, ccl::make_float3(0.0f, 0.0f, -1.0f));
+          while (sunRotation < 0.0f)
+            sunRotation += M_PI_F * 2.0f;
+        }
+
+        skyNode->set_sun_elevation(sunElevation);
+        skyNode->set_sun_rotation(sunRotation);
+        skyNode->handle.clear(); // clear the texture so that it can be recomputed
+        scene->image_manager->tag_update();
+
+        shader->tag_update(scene);
+        shader->tag_modified();
+      }
     } break;
 
     default:
@@ -313,6 +346,8 @@ void CyclesEngine::SetSceneMaxDepth(float maxDepth)
     scene->background->set_shader(shader);
     scene->background->tag_modified();
     scene->background->tag_update(scene);
+
+    scene->background->tag_shader_modified();
   }
 }
 
