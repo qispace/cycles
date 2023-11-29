@@ -13,7 +13,6 @@
 #include "session/buffers.h"
 #include "session/session.h"
 #include "session/output_driver.h"
-#include "app/cycles_xml.h"
 
 #include "opengl/display_driver.h"
 #include "opengl/window.h"
@@ -254,6 +253,10 @@ bool InteractiveCycles::SessionInit()
   CyclesEngine::SessionInit();
   mOptions.output_pass = "combined";
   mOptions.session = std::make_unique<Session>(*mOptions.session_params, *mOptions.scene_params);
+
+  //mOptions.session->scene->integrator->set_use_denoise(true);
+  //mOptions.session->scene->integrator->set_start_sample(200);
+  //mOptions.session->scene->integrator->tag_modified();
 
   if (!mOptions.session_params->background) {
 

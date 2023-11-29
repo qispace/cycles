@@ -394,6 +394,10 @@ bool OfflineCycles::SessionInit()
   mOptions.output_pass = "combined";
   mOptions.session = std::make_unique<Session>(*mOptions.session_params, *mOptions.scene_params);
 
+  mOptions.session->scene->integrator->set_use_denoise(true);
+  mOptions.session->scene->integrator->set_denoiser_prefilter(ccl::DenoiserPrefilter::DENOISER_PREFILTER_NONE);
+  mOptions.session->scene->integrator->tag_modified();
+
   if (!mOutputFilepath.empty()) {
     std::unique_ptr<OIIOOutputDriver> driver = std::make_unique<OfflineCycles_OIIOOutputDriver>(
         mOutputFilepath, mOptions.output_pass, [this](const std::string &str) {
