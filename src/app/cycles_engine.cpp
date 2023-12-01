@@ -139,7 +139,7 @@ void CyclesEngine::Resize(unsigned int width, unsigned int height)
   }
 }
 
-void CyclesEngine::SetCamera(float p[], float d[], float u[], CameraType cameraType)
+void CyclesEngine::SetCamera(CameraType cameraType, float p[], float d[], float u[], float fov)
 {
   float3 pos = make_float3(p[0], p[1], p[2]);
   float3 dir = make_float3(d[0], d[1], d[2]);
@@ -154,35 +154,34 @@ void CyclesEngine::SetCamera(float p[], float d[], float u[], CameraType cameraT
   transform_set_column(mCameraTransform.get(), 1, up);
   transform_set_column(mCameraTransform.get(), 2, dir);
   transform_set_column(mCameraTransform.get(), 3, pos);
-  mOptions.session->scene->camera->set_matrix(*mCameraTransform);
+  auto camera = mOptions.session->scene->camera;
+  camera->set_matrix(*mCameraTransform);
 
-
-
-   mOptions.session->scene->camera->set_farclip(FLT_MAX);
-
-
+  // No need to limit the visible distance
+  camera->set_farclip(FLT_MAX);
 
   // Type
   mCameraType = cameraType;
   switch (mCameraType) {
     case Perspective:
-      mOptions.session->scene->camera->set_camera_type(CAMERA_PERSPECTIVE);
+      camera->set_camera_type(CAMERA_PERSPECTIVE);
+      camera->set_fov(fov);
       break;
     case Orthographic:
-      mOptions.session->scene->camera->set_camera_type(CAMERA_ORTHOGRAPHIC);
+      camera->set_camera_type(CAMERA_ORTHOGRAPHIC);
       break;
     case Panoramic:
-      mOptions.session->scene->camera->set_camera_type(CAMERA_PANORAMA);
-      mOptions.session->scene->camera->set_panorama_type(PANORAMA_EQUIRECTANGULAR);
+      camera->set_camera_type(CAMERA_PANORAMA);
+      camera->set_panorama_type(PANORAMA_EQUIRECTANGULAR);
       break;
     default:
       break;
   }
 
   // Update and Reset
-  mOptions.session->scene->camera->compute_auto_viewplane();
-  mOptions.session->scene->camera->need_flags_update = true;
-  mOptions.session->scene->camera->need_device_update = true;
+  camera->compute_auto_viewplane();
+  camera->need_flags_update = true;
+  camera->need_device_update = true;
   ResetSession();
 }
 
@@ -209,4 +208,20 @@ void CyclesEngine::GetCamera(float p[], float d[], float u[], float *n, float *f
   for (int rows = 0; rows < 3; rows++) {
     u[rows] = matrix[rows][1];
   }
+}
+
+void CyclesEngine::SetDenoising(const DenoisingOptions &options)
+{
+  mOptions.session->scene->integrator->set_use_denoise(options.mEnable);
+  ccl::DenoiserPrefilter prefilter;
+  if (options.mPrefilter)
+  {
+      prefilter = ccl::DenoiserPrefilter::DENOISER_PREFILTER_ACCURATE;
+  }
+  else
+  {
+      prefilter = ccl::DenoiserPrefilter::DENOISER_PREFILTER_NONE;
+  }
+  mOptions.session->scene->integrator->set_denoiser_prefilter(prefilter);
+  mOptions.session->scene->integrator->tag_modified();
 }

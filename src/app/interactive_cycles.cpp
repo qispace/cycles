@@ -254,9 +254,10 @@ bool InteractiveCycles::SessionInit()
   mOptions.output_pass = "combined";
   mOptions.session = std::make_unique<Session>(*mOptions.session_params, *mOptions.scene_params);
 
-  //mOptions.session->scene->integrator->set_use_denoise(true);
-  //mOptions.session->scene->integrator->set_start_sample(200);
-  //mOptions.session->scene->integrator->tag_modified();
+  // Turn off denoising by default
+  DenoisingOptions denoisingOptions;
+  denoisingOptions.mEnable = false;
+  SetDenoising(denoisingOptions);
 
   if (!mOptions.session_params->background) {
 

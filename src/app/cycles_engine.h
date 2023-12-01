@@ -7,6 +7,7 @@
 #include <memory>
 #include <functional>
 
+
 #ifdef CYCLES_LIB_EXPORTS
 #  define DLL_API __declspec(dllexport)
 #else
@@ -17,6 +18,10 @@
 #define LOG_TYPE_INFO 1
 #define LOG_TYPE_WARNING 2
 #define LOG_TYPE_ERROR 3
+
+#define PI_F (3.1415926535897932f)
+#define PI_2_F (PI_F / 2.0f)
+#define PI_4_F (PI_F / 4.0f)
 
 namespace ccl {
 
@@ -86,6 +91,10 @@ struct Options {
   bool show_help, interactive, pause;
   std::string output_pass;
 };
+struct DenoisingOptions{
+  bool mEnable;
+  bool mPrefilter;
+};
 
 class CyclesEngine {
 
@@ -102,9 +111,10 @@ class CyclesEngine {
   DLL_API int GetViewportWidth();
   DLL_API int GetViewportHeight();
   DLL_API void Resize(unsigned int width, unsigned int height);
-  DLL_API void SetCamera(float p[], float d[], float u[], CameraType cameraType);
+  DLL_API void SetCamera(CameraType cameraType, float p[], float d[], float u[], float fov = PI_4_F);
   DLL_API void GetCamera(
       float p[], float d[], float u[], float *n, float *f, float *fov, float *aspect);
+  DLL_API void SetDenoising(const DenoisingOptions&);
 
   // Scene graph manipulation
   DLL_API Scene *GetScene();
