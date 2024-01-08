@@ -1120,17 +1120,19 @@ void CyclesEngine::UpdateMeshMaterials(
   // Collect shaders
   ccl::array<ccl::Node *> used_shaders;
   for (size_t i = 0; i < submeshCount; i++) {
+    auto material = materials[i];
+    if (material == nullptr)
+      continue;
     ccl::Shader *shader;
     switch (renderMode) {
       case cycles_wrapper::Depth: {
         // First get the shader
-        shader = (ccl::Shader *)materials[i]->depthShader;
+        shader = (ccl::Shader *)material->depthShader;
         // Then update the max depth value
         ccl::MathNode *node = nullptr;
         for (auto &it : shader->graph->nodes) {
           auto castedNode = dynamic_cast<ccl::MathNode *>(it);
-          if (castedNode && castedNode->name.compare("max_depth_node") == 0)
-          {
+          if (castedNode && castedNode->name.compare("max_depth_node") == 0) {
             node = castedNode;
             break;
           }
@@ -1144,17 +1146,16 @@ void CyclesEngine::UpdateMeshMaterials(
             shader->tag_update(scene);
           }
         }
-      }
-        break;
+      } break;
       case cycles_wrapper::Normal:
-        shader = (ccl::Shader *)materials[i]->normalShader;
+        shader = (ccl::Shader *)material->normalShader;
         break;
       case cycles_wrapper::Albedo:
-        shader = (ccl::Shader *)materials[i]->albedoShader;
+        shader = (ccl::Shader *)material->albedoShader;
         break;
       case cycles_wrapper::PBR:
       default:
-        shader = (ccl::Shader *)materials[i]->pbrShader;
+        shader = (ccl::Shader *)material->pbrShader;
         break;
     }
     shader->tag_used(s);
