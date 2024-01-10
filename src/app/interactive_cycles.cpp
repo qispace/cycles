@@ -103,7 +103,8 @@ InteractiveCycles::InteractiveCycles()
 {
   /* device names */
   string device_names = "";
-  string devicename = "CPU";
+  //string devicename = "CPU";
+  string devicename = "OPTIX";
 
   /* List devices for which support is compiled in. */
   vector<DeviceType> types = Device::available_types();
