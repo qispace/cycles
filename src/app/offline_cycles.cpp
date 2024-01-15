@@ -361,6 +361,9 @@ OfflineCycles::OfflineCycles() : CyclesEngine()
     fprintf(stderr, "Invalid number of samples: %d\n", mOptions.session_params->samples);
     exit(EXIT_FAILURE);
   }
+
+  // Initialize path
+    path_init();
 }
 
 OfflineCycles::~OfflineCycles()
@@ -491,7 +494,6 @@ bool OfflineCycles::RenderScene(const char *fileNameDest, bool useSharedMemory)
                                     CameraType::Panoramic;
 
   mOutputDriver->UpdateFilePath(fileNameDest, useSharedMemory);
-  path_init();
   ResetSession();
   mOptions.session->start();
 
@@ -499,5 +501,11 @@ bool OfflineCycles::RenderScene(const char *fileNameDest, bool useSharedMemory)
 
   mOptions.session->wait();
 
-  return true;
+  // Check for error messages
+  bool isOk = !mOptions.session->device->have_error();
+  if (!isOk) {
+    this->Log(LOG_TYPE_WARNING, "Offline Cycles finished rendering with error messages");
+  }
+
+  return isOk;
 }

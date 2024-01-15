@@ -180,6 +180,7 @@ void InteractiveCycles::SessionPrintStatus()
                                   mOptions.session->progress.get_current_sample();
 
   string status, substatus;
+  bool printStatus = true;
   mOptions.session->progress.get_status(status, substatus);
 
   if (status._Starts_with("Sample ")) {
@@ -191,16 +192,24 @@ void InteractiveCycles::SessionPrintStatus()
     // set the status
     status = "INTERACTIVE_CYCLES_STATUS: Pathtracing...";
     Log(LOG_TYPE_INFO, status);
+    mReady = false;
   }
   else {
-    if (status._Starts_with("Rendering Done"))
+    if (status._Starts_with("Rendering Done")) {
       status = "Ready";
-    else if (substatus != "")
+      if (mReady)
+        printStatus = false; // no need to repeat this print forever
+      mReady = true;
+    }
+    else if (substatus != "") {
       status += ": " + substatus;
+      mReady = false;
+    }
 
     /* print status */
     status = string_printf("INTERACTIVE_CYCLES_STATUS: %s", status.c_str());
-    Log(LOG_TYPE_INFO, status);
+    if (printStatus)
+      Log(LOG_TYPE_INFO, status);
   }
 }
 

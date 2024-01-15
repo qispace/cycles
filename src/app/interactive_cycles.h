@@ -60,6 +60,7 @@ class InteractiveCycles : public CyclesEngine {
  private:
   bool mSuspended = false;
   bool mUseOuterContext = false;
+  bool mReady = false;
   void *ptr_windowHWND = nullptr;
   void *ptr_hDC = nullptr;
   void *ptr_hRC = nullptr;
