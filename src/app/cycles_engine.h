@@ -111,7 +111,13 @@ class CyclesEngine {
   DLL_API int GetViewportWidth();
   DLL_API int GetViewportHeight();
   DLL_API void Resize(unsigned int width, unsigned int height);
-  DLL_API void SetCamera(CameraType cameraType, float p[], float d[], float u[], float fov = PI_4_F);
+  DLL_API void SetCamera(CameraType cameraType,
+      float p[],
+      float d[],
+      float u[],
+      float fov = PI_4_F,
+      float n = 0.01f,
+      float f = 1000000.0f);
   DLL_API void GetCamera(
       float p[], float d[], float u[], float *n, float *f, float *fov, float *aspect);
   DLL_API void SetDenoising(const DenoisingOptions&);
@@ -183,6 +189,14 @@ class CyclesEngine {
                                 float range,
                                 float innerConeAngle,
                                 float outerConeAngle);
+  DLL_API void UpdateLight(Scene *scene,
+                           Light *light,
+                           int type,
+                           float *color,
+                           float intensity,
+                           float range,
+                           float innerConeAngle,
+                           float outerConeAngle);
   DLL_API bool RemoveLightFromNode(Scene *scene, Node *node, Light *light);
   DLL_API bool AssignMeshToNode(Scene *scene, Node *node, Mesh *mesh);
 

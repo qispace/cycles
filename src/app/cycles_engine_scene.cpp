@@ -1250,6 +1250,57 @@ Light *CyclesEngine::AddLightToNode(Scene *scene,
   return (cycles_wrapper::Light *)light;
 }
 
+void CyclesEngine::UpdateLight(Scene *scene,
+                               Light *light,
+                               int type,
+                               float *color,
+                               float intensity,
+                               float range,
+                               float innerConeAngle,
+                               float outerConeAngle)
+{
+  auto s = (ccl::Scene *)scene;
+  auto l = (ccl::Light *)light;
+
+  // Luminous efficacy (lumenToWatt) of an ideal monochromatic source: 555 nm:
+  // https://en.wikipedia.org/wiki/Luminous_efficacy
+  const float lumenToWatt = 1.0f / 683.002f;
+  const float candelaToWattFactor = 4.0f * M_PI * lumenToWatt;
+  const float luxToWattFactor = 1.0f * lumenToWatt;
+  ccl::float3 strength = ccl::make_float3(color[0], color[1], color[2]);
+  switch (type) {
+    case 0:  // directional
+      l->set_light_type(ccl::LIGHT_DISTANT);
+      // for directional light the intensity is measured in lux (lm/m2)
+      strength *= intensity * luxToWattFactor;
+      l->set_angle(0.009180f);  // hard coded to match the angle from Blender
+      break;
+
+    case 1:  // spot
+      l->set_light_type(ccl::LIGHT_SPOT);
+      // for spot light the intensity is measured in candela (lm/sr)
+      strength *= intensity * candelaToWattFactor;
+      l->set_size(0.01f);
+      l->set_spot_angle(outerConeAngle * 2);  // glTF defines the angle as half as the cycles angle
+      l->set_spot_smooth((outerConeAngle - innerConeAngle) / outerConeAngle);
+      break;
+
+    case 2:  // point
+      l->set_light_type(ccl::LIGHT_POINT);
+      // for point light the intensity is measured in candela (lm/sr)
+      strength *= intensity * candelaToWattFactor;
+      l->set_size(0.01f);
+      break;
+
+    default:
+      throw;
+      break;
+  }
+
+  l->set_strength(strength);
+  l->tag_update(s);
+}
+
 bool CyclesEngine::RemoveLightFromNode(Scene *scene, Node *node, Light *light)
 {
   if (!scene || !node || !light)

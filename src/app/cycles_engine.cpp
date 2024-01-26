@@ -139,7 +139,13 @@ void CyclesEngine::Resize(unsigned int width, unsigned int height)
   }
 }
 
-void CyclesEngine::SetCamera(CameraType cameraType, float p[], float d[], float u[], float fov)
+void CyclesEngine::SetCamera(CameraType cameraType,
+                             float p[],
+                             float d[],
+                             float u[],
+                             float fov,
+                             float n,
+                             float f)
 {
   float3 pos = make_float3(p[0], p[1], p[2]);
   float3 dir = make_float3(d[0], d[1], d[2]);
@@ -157,8 +163,10 @@ void CyclesEngine::SetCamera(CameraType cameraType, float p[], float d[], float 
   auto camera = mOptions.session->scene->camera;
   camera->set_matrix(*mCameraTransform);
 
-  // No need to limit the visible distance
-  camera->set_farclip(FLT_MAX);
+  // Clipping
+  //camera->set_farclip(FLT_MAX);
+  camera->set_nearclip(n);
+  camera->set_farclip(f);
 
   // Type
   mCameraType = cameraType;
