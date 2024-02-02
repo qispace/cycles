@@ -67,9 +67,9 @@ struct Node {
   ccl::Object *assignedMeshObject = nullptr;
   std::vector<ccl::Light *> assignedLightObjects;
 };
-enum RenderMode { PBR, Depth, Normal, Albedo };
+enum RenderMode { PBR, Depth, Normal, Albedo, Color };
 struct Material {
-  ccl::Shader *pbrShader, *depthShader, *normalShader, *albedoShader;
+  ccl::Shader *pbrShader, *depthShader, *normalShader, *albedoShader, *colorShader;
   std::set<ccl::ImageHandle *> usedImages;
 };
 enum CameraType { Perspective, Orthographic, Panoramic };
@@ -139,6 +139,7 @@ class CyclesEngine {
   DLL_API void RemoveNode(Node *node);
   DLL_API void UpdateNodeTransform(Node *node, float t[3], float r[4], float s[3]);
   DLL_API void UpdateNodeVisibility(Node *node, bool visible);
+  DLL_API void UpdateNodeColor(Node *node, float c[3]); // this is not albedo color
   DLL_API Texture *AddTexture(Scene *scene,
                               const char *name,
                               const unsigned char *data,

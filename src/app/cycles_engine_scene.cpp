@@ -553,6 +553,22 @@ void CyclesEngine::UpdateNodeVisibility(Node *node, bool visible)
   }
 }
 
+void CyclesEngine::UpdateNodeColor(Node *node, float c[3])
+{
+  ccl::Scene *scene = (ccl::Scene *)node->scene;
+  auto color = ccl::make_float3(c[0], c[1], c[2]);
+  if (node->assignedMeshObject) {
+    node->assignedMeshObject->set_color(color);
+    node->assignedMeshObject->tag_update(scene);
+  }
+
+  // Update the children now as well
+  for (size_t i = 0; i < node->children.size(); i++) {
+    Node *childNode = node->children[i];
+    UpdateNodeColor(childNode, c);
+  }
+}
+
 Texture *CyclesEngine::AddTexture(Scene *scene,
                                   const char *name,
                                   const unsigned char *data,
@@ -924,6 +940,22 @@ Material *CyclesEngine::AddMaterial(Scene *scene,
     material->albedoShader = shader;
   }
 
+  // Create object color shader
+  {
+    ccl::ShaderGraph *graph = new ccl::ShaderGraph();
+    auto objInfoNode = graph->create_node<ccl::ObjectInfoNode>();
+    graph->add(objInfoNode);
+
+    graph->connect(objInfoNode->output("Color"), graph->output()->input("Surface"));
+
+    ccl::Shader *shader = s->create_node<ccl::Shader>();
+    shader->name = OpenImageIO_v2_4::ustring(std::string(name) + "_color");
+    shader->set_graph(graph);
+    shader->tag_update(s);
+
+    material->colorShader = shader;
+  }
+
   return material;
 }
 
@@ -988,7 +1020,7 @@ Mesh *CyclesEngine::AddMesh(Scene *scene,
       fdataNormal[i] = ccl::make_float3(vertexNormalArray[i * 3 + 0],
                                         vertexNormalArray[i * 3 + 1],
                                         vertexNormalArray[i * 3 + 2]);
-      //fdataNormal[i] = ccl::normalize(fdataNormal[i]);
+      // fdataNormal[i] = ccl::normalize(fdataNormal[i]);
     }
   }
   else {
@@ -1070,11 +1102,13 @@ Mesh *CyclesEngine::AddMesh(Scene *scene,
         float t2 = w3.y - w1.y;
 
         float r = 1.0F / (s1 * t2 - s2 * t1);
-        ccl::float3 sdir = ccl::make_float3((t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r);
-        ccl::float3 tdir = ccl::make_float3((s1 * x2 - s2 * x1) * r, (s1 * y2 - s2 * y1) * r, (s1 * z2 - s2 * z1) * r);
+        ccl::float3 sdir = ccl::make_float3(
+            (t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r);
+        ccl::float3 tdir = ccl::make_float3(
+            (s1 * x2 - s2 * x1) * r, (s1 * y2 - s2 * y1) * r, (s1 * z2 - s2 * z1) * r);
         ccl::float3 tan = sdir;
         ccl::float3 bitan = tdir;
-        
+
         // Gram-Schmidt orthogonalize
         fdataTangent[j0] = ccl::normalize(tan - n1 * ccl::dot(n1, tan));
         fdataTangent[j1] = ccl::normalize(tan - n2 * ccl::dot(n2, tan));
@@ -1098,7 +1132,6 @@ Mesh *CyclesEngine::AddMesh(Scene *scene,
   }
   mesh->set_used_shaders(used_shaders);
   mesh->tag_update(s, false);
-
   return (cycles_wrapper::Mesh *)mesh;
 }
 
@@ -1109,13 +1142,13 @@ void CyclesEngine::UpdateMeshMaterials(
   ccl::Mesh *m = (ccl::Mesh *)mesh;
 
   //// Set some flag for the old shaders
-  //ccl::array<ccl::Node *> used_shaders_old = m->get_used_shaders();
-  //for (size_t i = 0; i < used_shaders_old.size(); i++) {
-  //  ccl::Shader *shader = (ccl::Shader *)used_shaders_old[i];
-  //  shader->tag_used(s);
-  //  shader->tag_update(s);
-  //  shader->tag_modified();
-  //}
+  // ccl::array<ccl::Node *> used_shaders_old = m->get_used_shaders();
+  // for (size_t i = 0; i < used_shaders_old.size(); i++) {
+  //   ccl::Shader *shader = (ccl::Shader *)used_shaders_old[i];
+  //   shader->tag_used(s);
+  //   shader->tag_update(s);
+  //   shader->tag_modified();
+  // }
 
   // Collect shaders
   ccl::array<ccl::Node *> used_shaders;
@@ -1152,6 +1185,9 @@ void CyclesEngine::UpdateMeshMaterials(
         break;
       case cycles_wrapper::Albedo:
         shader = (ccl::Shader *)material->albedoShader;
+        break;
+      case cycles_wrapper::Color:
+        shader = (ccl::Shader *)material->colorShader;
         break;
       case cycles_wrapper::PBR:
       default:
@@ -1338,6 +1374,7 @@ bool CyclesEngine::AssignMeshToNode(Scene *scene, Node *node, Mesh *mesh)
   // object->set_is_caustics_caster(node->name.compare("Sphere") == 0);
   object->set_is_caustics_receiver(true);
   object->set_tfm(*nodeTransform);
+  object->set_color(ccl::make_float3(0.0f, 0.0f, 0.0f));
   object->set_owner(s);
   object->tag_update(s);
   s->objects.push_back(object);
