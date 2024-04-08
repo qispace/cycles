@@ -26,6 +26,7 @@
 using namespace cycles_wrapper;
 
 const std::string CyclesEngine::sDefaultSurfaceShaderName = "qi_shader_default_surface";
+const std::string CyclesEngine::sDefaultColorShaderName = "qi_shader_default_color";
 const std::string CyclesEngine::sLightShaderName = "qi_shader_light";
 const std::string CyclesEngine::sDisabledLightShaderName = "qi_shader_light_disabled";
 const std::string CyclesEngine::sColorBackgroundShaderName = "qi_shader_background_color";
@@ -60,6 +61,21 @@ void CyclesEngine::DefaultSceneInit()
 
     ccl::Shader *shader = scene->create_node<ccl::Shader>();
     shader->name = sDefaultSurfaceShaderName;
+    shader->set_graph(graph);
+    shader->reference();
+    shader->tag_update(scene);
+    mNameToShader[shader->name.c_str()] = shader;
+  }
+  // Default color shader
+  {
+    ccl::ShaderGraph *graph = new ccl::ShaderGraph();
+    auto objInfoNode = graph->create_node<ccl::ObjectInfoNode>();
+    graph->add(objInfoNode);
+
+    graph->connect(objInfoNode->output("Color"), graph->output()->input("Surface"));
+
+    ccl::Shader *shader = scene->create_node<ccl::Shader>();
+    shader->name = sDefaultColorShaderName;
     shader->set_graph(graph);
     shader->reference();
     shader->tag_update(scene);
@@ -119,7 +135,6 @@ void CyclesEngine::DefaultSceneInit()
     scene->default_background = shader;
     mCurrentBackgroundShaderName = shader->name.c_str();
   }
-
   // Sky Background
   {
     ccl::ShaderGraph *graph = new ccl::ShaderGraph();
@@ -1154,11 +1169,11 @@ void CyclesEngine::UpdateMeshMaterials(
   ccl::array<ccl::Node *> used_shaders;
   for (size_t i = 0; i < submeshCount; i++) {
     auto material = materials[i];
-    if (material == nullptr)
-      continue;
     ccl::Shader *shader;
     switch (renderMode) {
       case cycles_wrapper::Depth: {
+        if (material == nullptr)
+          continue;
         // First get the shader
         shader = (ccl::Shader *)material->depthShader;
         // Then update the max depth value
@@ -1181,17 +1196,27 @@ void CyclesEngine::UpdateMeshMaterials(
         }
       } break;
       case cycles_wrapper::Normal:
+        if (material == nullptr)
+          continue;
         shader = (ccl::Shader *)material->normalShader;
         break;
       case cycles_wrapper::Albedo:
+        if (material == nullptr)
+          continue;
         shader = (ccl::Shader *)material->albedoShader;
         break;
       case cycles_wrapper::Color:
-        shader = (ccl::Shader *)material->colorShader;
+        if (material == nullptr)
+          shader = mNameToShader[sDefaultColorShaderName];
+        else
+          shader = (ccl::Shader *)material->colorShader;
         break;
       case cycles_wrapper::PBR:
       default:
-        shader = (ccl::Shader *)material->pbrShader;
+        if (material == nullptr)
+          shader = mNameToShader[sDefaultSurfaceShaderName];
+        else
+          shader = (ccl::Shader *)material->pbrShader;
         break;
     }
     shader->tag_used(s);

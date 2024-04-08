@@ -228,6 +228,7 @@ class CyclesEngine {
 
   // Static const
   static const std::string sDefaultSurfaceShaderName;
+  static const std::string sDefaultColorShaderName;
   static const std::string sLightShaderName;
   static const std::string sDisabledLightShaderName;
   static const std::string sTexturedShaderName;
