@@ -651,6 +651,7 @@ Material *CyclesEngine::AddMaterial(Scene *scene,
                                     const TextureTransform &emissiveTransform,
                                     float *emissiveFactor,
                                     float emissiveStrength,
+                                    bool unlit,
                                     float transmissionFactor,
                                     float IOR,
                                     float *volumeAttenuationColor,
@@ -665,6 +666,7 @@ Material *CyclesEngine::AddMaterial(Scene *scene,
   // Create PBR
   {
     ccl::ShaderGraph *graph = new ccl::ShaderGraph();
+
     // ccl::float3 f3AlbedoColor = ccl::make_float3(albedoColor[0] * volumeAttenuationColor[0],
     //                                             albedoColor[1] * volumeAttenuationColor[1],
     //                                             albedoColor[2] * volumeAttenuationColor[2]);
@@ -702,130 +704,148 @@ Material *CyclesEngine::AddMaterial(Scene *scene,
     // graph->connect(albedoOutput, separateColorNode->input("Color"));
     // ccl::ShaderOutput *alphaOutput = separateColorNode->output("Alpha");
 
-    // Normals
-    ccl::ShaderOutput *normalOutput = nullptr;
-    if (normalTex != nullptr) {
-      ccl::ImageHandle *sharedImageHandle = (ccl::ImageHandle *)normalTex;
-      material->usedImages.insert(sharedImageHandle);
-      ccl::ImageTextureNode *normalImageNode = graph->create_node<ccl::ImageTextureNode>();
-      normalImageNode->handle = *sharedImageHandle;
-      SetTextureTransform(normalImageNode, normalTransform);
-      graph->add(normalImageNode);
+    if (!unlit)  // regular PBR
+    {
+      // Normals
+      ccl::ShaderOutput *normalOutput = nullptr;
+      if (normalTex != nullptr) {
+        ccl::ImageHandle *sharedImageHandle = (ccl::ImageHandle *)normalTex;
+        material->usedImages.insert(sharedImageHandle);
+        ccl::ImageTextureNode *normalImageNode = graph->create_node<ccl::ImageTextureNode>();
+        normalImageNode->handle = *sharedImageHandle;
+        SetTextureTransform(normalImageNode, normalTransform);
+        graph->add(normalImageNode);
 
-      ccl::NormalMapNode *normalMapNode = graph->create_node<ccl::NormalMapNode>();
-      normalMapNode->set_space(ccl::NODE_NORMAL_MAP_TANGENT);
-      normalMapNode->set_strength(normalStrength);
-      graph->add(normalMapNode);
+        ccl::NormalMapNode *normalMapNode = graph->create_node<ccl::NormalMapNode>();
+        normalMapNode->set_space(ccl::NODE_NORMAL_MAP_TANGENT);
+        normalMapNode->set_strength(normalStrength);
+        graph->add(normalMapNode);
 
-      graph->connect(normalImageNode->output("Color"), normalMapNode->input("Color"));
-      normalOutput = normalMapNode->output("Normal");
+        graph->connect(normalImageNode->output("Color"), normalMapNode->input("Color"));
+        normalOutput = normalMapNode->output("Normal");
+      }
+
+      // Metallic and roughness
+      ccl::ShaderOutput *metallicOutput = nullptr;
+      ccl::ShaderOutput *roughnessOutput = nullptr;
+      ccl::ValueNode *metalnessValueNode = graph->create_node<ccl::ValueNode>();
+      metalnessValueNode->set_value(metallicFactor);
+      graph->add(metalnessValueNode);
+      ccl::ValueNode *roughnessValueNode = graph->create_node<ccl::ValueNode>();
+      roughnessValueNode->set_value(roughnessFactor);
+      graph->add(roughnessValueNode);
+
+      if (metallicRoughnessTexture != nullptr) {
+        ccl::ImageHandle *sharedImageHandle = (ccl::ImageHandle *)metallicRoughnessTexture;
+        material->usedImages.insert(sharedImageHandle);
+        ccl::ImageTextureNode *metallicRoughnessImageNode =
+            graph->create_node<ccl::ImageTextureNode>();
+        metallicRoughnessImageNode->handle = *sharedImageHandle;
+        SetTextureTransform(metallicRoughnessImageNode, metallicRoughnessTransform);
+        graph->add(metallicRoughnessImageNode);
+        ccl::SeparateColorNode *separateColorNode = graph->create_node<ccl::SeparateColorNode>();
+        graph->add(separateColorNode);
+        graph->connect(metallicRoughnessImageNode->output("Color"),
+                       separateColorNode->input("Color"));
+
+        // Metallic
+        ccl::MathNode *metalnessMultiplyNode = graph->create_node<ccl::MathNode>();
+        metalnessMultiplyNode->set_math_type(ccl::NODE_MATH_MULTIPLY);
+        graph->add(metalnessMultiplyNode);
+        graph->connect(separateColorNode->output("Blue"), metalnessMultiplyNode->input("Value1"));
+        graph->connect(metalnessValueNode->output("Value"),
+                       metalnessMultiplyNode->input("Value2"));
+        metallicOutput = metalnessMultiplyNode->output("Value");
+
+        // Roughness
+        ccl::MathNode *roughnessMultiplyNode = graph->create_node<ccl::MathNode>();
+        roughnessMultiplyNode->set_math_type(ccl::NODE_MATH_MULTIPLY);
+        graph->add(roughnessMultiplyNode);
+        graph->connect(separateColorNode->output("Green"), roughnessMultiplyNode->input("Value1"));
+        graph->connect(roughnessValueNode->output("Value"),
+                       roughnessMultiplyNode->input("Value2"));
+        roughnessOutput = roughnessMultiplyNode->output("Value");
+      }
+      else {
+        metallicOutput = metalnessValueNode->output("Value");
+        roughnessOutput = roughnessValueNode->output("Value");
+      }
+
+      // Emissive
+      ccl::float3 f3EmissiveFactor = ccl::make_float3(
+          emissiveFactor[0], emissiveFactor[1], emissiveFactor[2]);
+      ccl::ColorNode *emisiveColorNode = graph->create_node<ccl::ColorNode>();
+      emisiveColorNode->set_value(f3EmissiveFactor);
+      graph->add(emisiveColorNode);
+      ccl::ShaderOutput *emissiveOutput = nullptr;
+      if (emissiveTex != nullptr) {
+        ccl::ImageHandle *sharedImageHandle = (ccl::ImageHandle *)emissiveTex;
+        material->usedImages.insert(sharedImageHandle);
+        ccl::ImageTextureNode *emissiveImageNode = graph->create_node<ccl::ImageTextureNode>();
+        emissiveImageNode->handle = *sharedImageHandle;
+        SetTextureTransform(emissiveImageNode, emissiveTransform);
+        graph->add(emissiveImageNode);
+
+        ccl::VectorMathNode *multiplyNode = graph->create_node<ccl::VectorMathNode>();
+        multiplyNode->set_math_type(ccl::NODE_VECTOR_MATH_MULTIPLY);
+        graph->add(multiplyNode);
+
+        graph->connect(emisiveColorNode->output("Color"), multiplyNode->input("Vector1"));
+        graph->connect(emissiveImageNode->output("Color"), multiplyNode->input("Vector2"));
+        emissiveOutput = multiplyNode->output("Vector");
+      }
+      else {
+        emissiveOutput = emisiveColorNode->output("Color");
+      }
+
+      // BSDF
+      ccl::PrincipledBsdfNode *bsdfNode = graph->create_node<ccl::PrincipledBsdfNode>();
+      bsdfNode->set_transmission(transmissionFactor);
+      bsdfNode->set_subsurface(0.0f);
+      bsdfNode->set_alpha(alpha);
+      if (IOR < 1.00001f)
+        IOR = 1.00001f;  // clamp to this value to prevent crashes (in debug mode)
+      bsdfNode->set_ior(IOR);
+      // Just the same default as we have in Blender.
+      // There is an extension for this stuff: KHR_materials_specular
+      // https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Khronos/KHR_materials_specular/README.md
+      bsdfNode->set_specular(0.5f);
+      graph->add(bsdfNode);
+      ccl::ShaderOutput *bsdfOutput = bsdfNode->output("BSDF");
+
+      // Final connections
+      graph->connect(albedoOutput, bsdfNode->input("Base Color"));
+      graph->connect(albedoOutput, bsdfNode->input("Subsurface Color"));
+      graph->connect(metallicOutput, bsdfNode->input("Metallic"));
+      graph->connect(roughnessOutput, bsdfNode->input("Roughness"));
+      graph->connect(roughnessOutput, bsdfNode->input("Transmission Roughness"));
+      if (normalOutput) {
+        graph->connect(normalOutput, bsdfNode->input("Normal"));
+      }
+      graph->connect(emissiveOutput, bsdfNode->input("Emission"));
+      bsdfNode->set_emission_strength(emissiveStrength);
+
+      graph->connect(bsdfOutput, graph->output()->input("Surface"));
     }
+    else  // unlit
+    {
+      ccl::EmissionNode *emissionNode = graph->create_node<ccl::EmissionNode>();
+      graph->add(emissionNode);
 
-    // Metallic and roughness
-    ccl::ShaderOutput *metallicOutput = nullptr;
-    ccl::ShaderOutput *roughnessOutput = nullptr;
-    ccl::ValueNode *metalnessValueNode = graph->create_node<ccl::ValueNode>();
-    metalnessValueNode->set_value(metallicFactor);
-    graph->add(metalnessValueNode);
-    ccl::ValueNode *roughnessValueNode = graph->create_node<ccl::ValueNode>();
-    roughnessValueNode->set_value(roughnessFactor);
-    graph->add(roughnessValueNode);
+      ccl::LightPathNode *lightPathNode = graph->create_node<ccl::LightPathNode>();
+      graph->add(lightPathNode);
 
-    if (metallicRoughnessTexture != nullptr) {
-      ccl::ImageHandle *sharedImageHandle = (ccl::ImageHandle *)metallicRoughnessTexture;
-      material->usedImages.insert(sharedImageHandle);
-      ccl::ImageTextureNode *metallicRoughnessImageNode =
-          graph->create_node<ccl::ImageTextureNode>();
-      metallicRoughnessImageNode->handle = *sharedImageHandle;
-      SetTextureTransform(metallicRoughnessImageNode, metallicRoughnessTransform);
-      graph->add(metallicRoughnessImageNode);
-      ccl::SeparateColorNode *separateColorNode = graph->create_node<ccl::SeparateColorNode>();
-      graph->add(separateColorNode);
-      graph->connect(metallicRoughnessImageNode->output("Color"),
-                     separateColorNode->input("Color"));
+      // Final connections
+      graph->connect(albedoOutput, emissionNode->input("Color"));
+      graph->connect(lightPathNode->output("Is Camera Ray"), emissionNode->input("Strength"));
 
-      // Metallic
-      ccl::MathNode *metalnessMultiplyNode = graph->create_node<ccl::MathNode>();
-      metalnessMultiplyNode->set_math_type(ccl::NODE_MATH_MULTIPLY);
-      graph->add(metalnessMultiplyNode);
-      graph->connect(separateColorNode->output("Blue"), metalnessMultiplyNode->input("Value1"));
-      graph->connect(metalnessValueNode->output("Value"), metalnessMultiplyNode->input("Value2"));
-      metallicOutput = metalnessMultiplyNode->output("Value");
-
-      // Roughness
-      ccl::MathNode *roughnessMultiplyNode = graph->create_node<ccl::MathNode>();
-      roughnessMultiplyNode->set_math_type(ccl::NODE_MATH_MULTIPLY);
-      graph->add(roughnessMultiplyNode);
-      graph->connect(separateColorNode->output("Green"), roughnessMultiplyNode->input("Value1"));
-      graph->connect(roughnessValueNode->output("Value"), roughnessMultiplyNode->input("Value2"));
-      roughnessOutput = roughnessMultiplyNode->output("Value");
+      graph->connect(emissionNode->output("Emission"), graph->output()->input("Surface"));
     }
-    else {
-      metallicOutput = metalnessValueNode->output("Value");
-      roughnessOutput = roughnessValueNode->output("Value");
-    }
-
-    // Emissive
-    ccl::float3 f3EmissiveFactor = ccl::make_float3(
-        emissiveFactor[0], emissiveFactor[1], emissiveFactor[2]);
-    ccl::ColorNode *emisiveColorNode = graph->create_node<ccl::ColorNode>();
-    emisiveColorNode->set_value(f3EmissiveFactor);
-    graph->add(emisiveColorNode);
-    ccl::ShaderOutput *emissiveOutput = nullptr;
-    if (emissiveTex != nullptr) {
-      ccl::ImageHandle *sharedImageHandle = (ccl::ImageHandle *)emissiveTex;
-      material->usedImages.insert(sharedImageHandle);
-      ccl::ImageTextureNode *emissiveImageNode = graph->create_node<ccl::ImageTextureNode>();
-      emissiveImageNode->handle = *sharedImageHandle;
-      SetTextureTransform(emissiveImageNode, emissiveTransform);
-      graph->add(emissiveImageNode);
-
-      ccl::VectorMathNode *multiplyNode = graph->create_node<ccl::VectorMathNode>();
-      multiplyNode->set_math_type(ccl::NODE_VECTOR_MATH_MULTIPLY);
-      graph->add(multiplyNode);
-
-      graph->connect(emisiveColorNode->output("Color"), multiplyNode->input("Vector1"));
-      graph->connect(emissiveImageNode->output("Color"), multiplyNode->input("Vector2"));
-      emissiveOutput = multiplyNode->output("Vector");
-    }
-    else {
-      emissiveOutput = emisiveColorNode->output("Color");
-    }
-
-    // BSDF
-    ccl::PrincipledBsdfNode *bsdfNode = graph->create_node<ccl::PrincipledBsdfNode>();
-    bsdfNode->set_transmission(transmissionFactor);
-    bsdfNode->set_subsurface(0.0f);
-    bsdfNode->set_alpha(alpha);
-    if (IOR < 1.00001f)
-      IOR = 1.00001f;  // clamp to this value to prevent crashes (in debug mode)
-    bsdfNode->set_ior(IOR);
-    // Just the same default as we have in Blender.
-    // There is an extension for this stuff: KHR_materials_specular
-    // https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Khronos/KHR_materials_specular/README.md
-    bsdfNode->set_specular(0.5f);
-    graph->add(bsdfNode);
-    ccl::ShaderOutput *bsdfOutput = bsdfNode->output("BSDF");
-
-    // Final connections
-    graph->connect(albedoOutput, bsdfNode->input("Base Color"));
-    graph->connect(albedoOutput, bsdfNode->input("Subsurface Color"));
-    graph->connect(metallicOutput, bsdfNode->input("Metallic"));
-    graph->connect(roughnessOutput, bsdfNode->input("Roughness"));
-    graph->connect(roughnessOutput, bsdfNode->input("Transmission Roughness"));
-    if (normalOutput) {
-      graph->connect(normalOutput, bsdfNode->input("Normal"));
-    }
-    graph->connect(emissiveOutput, bsdfNode->input("Emission"));
-    bsdfNode->set_emission_strength(emissiveStrength);
-
-    graph->connect(bsdfOutput, graph->output()->input("Surface"));
 
     ccl::Shader *shader = s->create_node<ccl::Shader>();
     shader->name = OpenImageIO_v2_4::ustring(std::string(name) + "_pbr");
     shader->set_graph(graph);
     shader->tag_update(s);
-
     material->pbrShader = shader;
   }
 
@@ -862,7 +882,6 @@ Material *CyclesEngine::AddMaterial(Scene *scene,
     shader->name = OpenImageIO_v2_4::ustring(std::string(name) + "_depth");
     shader->set_graph(graph);
     shader->tag_update(s);
-
     material->depthShader = shader;
   }
 
@@ -906,7 +925,6 @@ Material *CyclesEngine::AddMaterial(Scene *scene,
     shader->name = OpenImageIO_v2_4::ustring(std::string(name) + "_normal");
     shader->set_graph(graph);
     shader->tag_update(s);
-
     material->normalShader = shader;
   }
 
@@ -951,7 +969,6 @@ Material *CyclesEngine::AddMaterial(Scene *scene,
     shader->name = OpenImageIO_v2_4::ustring(std::string(name) + "_albedo");
     shader->set_graph(graph);
     shader->tag_update(s);
-
     material->albedoShader = shader;
   }
 
@@ -967,7 +984,6 @@ Material *CyclesEngine::AddMaterial(Scene *scene,
     shader->name = OpenImageIO_v2_4::ustring(std::string(name) + "_color");
     shader->set_graph(graph);
     shader->tag_update(s);
-
     material->colorShader = shader;
   }
 

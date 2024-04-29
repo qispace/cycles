@@ -162,6 +162,7 @@ class CyclesEngine {
                                 const TextureTransform &emissiveTransform,
                                 float *emissiveFactor,
                                 float emissiveStrength,
+                                bool unlit,
                                 float transmissionFactor,
                                 float IOR,
                                 float *volumeAttenuationColor,
